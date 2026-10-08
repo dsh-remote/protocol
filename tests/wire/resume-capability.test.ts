@@ -19,6 +19,7 @@ import { cmdSessionHistory, evSessionHistory } from '../../src/wire/payloads.js'
 import { errorCodes } from '../../src/wire/frames.js'
 import { describeErrorCode, isRetryableError } from '../../src/wire/errors.js'
 import { CAPABILITY_IDS, CAPABILITY_DESCRIPTIONS, hasCapability } from '../../src/wire/registry.js'
+import { sessionHistory } from '../../src/wire/outbound.js'
 
 /**
  * 一条最小的合法历史条目。
@@ -119,4 +120,28 @@ test('⑤ 补差量与拉历史给同一批 seq 时结果逐字节一致（V3-PL
     '若实现写成 `>=` 就会把 since 那一条重发 ⇒ 下面那条断言必须比它多一条',
   )
   assert.equal(resume(3).length, 2, 'since=3 时只补 4、5（3 那条手机已有，不重发）')
+})
+test('⑥ 出站构造器也要带 latestSeq（v3 加字段时漏掉的那一处）', () => {
+  // ⚠️ 这一条是补记的：v3 给 `ev.session_history` 加 `latestSeq` 时改了 schema、
+  // 改了端口类型、改了 SPEC，**唯独漏了协议层的出站构造器**。
+  // 于是 runtime 转发正确、schema 认这个字段，而线格式那一步把它丢掉——
+  // 手机永远收不到游标，重连后整段重拉。
+  //
+  // 为什么前五条判据都没抓住：它们查的是 schema、mock 与描述表，
+  // **没有一条真的走一遍出站构造器到线格式**。凡"加字段"的改动都得过这一条。
+  const built = sessionHistory({
+    sessionId: 'ses_abc',
+    cmdId: 'c1',
+    items: [],
+    latestSeq: 42,
+  })
+  assert.equal(built.latestSeq, 42, '构造器必须把 latestSeq 放进线格式载荷')
+
+  // 缺省时也不能塞一个 undefined 进去（那是"字段存在但值为 undefined"的怪形状）
+  const without = sessionHistory({ sessionId: 'ses_abc', cmdId: 'c1', items: [] })
+  assert.equal(
+    Object.hasOwn(without, 'latestSeq'),
+    false,
+    '没给 latestSeq 时整个字段不该出现（老主机就是这个样子，手机据此走 v2 路径）',
+  )
 })

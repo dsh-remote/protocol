@@ -481,13 +481,23 @@ export function sessionHistory(args: {
   items: HistoryItem[]
   /** 省略即"这是最初的一页"。 */
   nextBeforeSeq?: number
+  /**
+   * 这一页覆盖到的最大 seq（**空页也要给**，规范 §10.7 S3）。
+   *
+   * ⚠️ v3 加这个字段时只改了 schema，**漏了这个构造器**——于是 runtime 转发对了、
+   * schema 也认了，而线格式那一步把它丢了。症状：手机收不到 `latestSeq`，
+   * 下次重连只能记 0 ⇒ 整段历史重拉（而判据当时只查 schema 与 mock，
+   * 正好从这两侧看不见这个洞）。**任何加字段的改动都要过一遍出站构造器。**
+   */
+  latestSeq?: number
 }): EvSessionHistory {
-  const { sessionId, cmdId, items, nextBeforeSeq } = args
+  const { sessionId, cmdId, items, nextBeforeSeq, latestSeq } = args
   return {
     t: PAYLOAD_TYPES.evSessionHistory,
     sessionId,
     cmdId,
     items,
     ...(nextBeforeSeq === undefined ? {} : { nextBeforeSeq }),
+    ...(latestSeq === undefined ? {} : { latestSeq }),
   }
 }
