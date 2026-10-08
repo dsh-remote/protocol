@@ -26,7 +26,7 @@ import { MAX_CIPHERTEXT_BYTES, MAX_RELAY_MESSAGE_BYTES } from './limits.js'
 
 /**
  * 帧大小预算住 `limits.ts`（三端共享的数值只有一个来源），这里**必须继续转出**：
- * 中继 `src/config.ts` 从 `dsh-remote-wire/frames` 引 `MAX_RELAY_MESSAGE_BYTES`
+ * 中继 `src/config.ts` 从 `@dsh-remote/protocol/frames` 引 `MAX_RELAY_MESSAGE_BYTES`
  * 当 `DRC_MAX_MSG_BYTES` 的默认值，撤掉这条转出是一个只会在下游编译期爆炸的变更。
  */
 export { MAX_CIPHERTEXT_BYTES, MAX_RELAY_MESSAGE_BYTES }

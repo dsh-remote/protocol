@@ -16,7 +16,7 @@
  * ## 为什么 `MAX_RELAY_MESSAGE_BYTES` 从 `frames.ts` 搬到这里而不是新加一个
  *
  * 它被中继当默认值 import（`dsh-remote-server/src/config.ts:28` 从
- * `dsh-remote-wire/frames` 引）。所以 `frames.ts` MUST NOT 停止导出它——
+ * `@dsh-remote/protocol/frames` 引）。所以 `frames.ts` MUST NOT 停止导出它——
  * 见文件末尾的转出，那条转出不是"顺手留个兼容"，而是**依赖**：
  * 把符号从消费方的导入路径上撤掉，是一个只会在下游编译期爆炸的破坏性变更。
  */

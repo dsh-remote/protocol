@@ -256,7 +256,7 @@ test('unsupported_protocol 在错误码枚举里，且只有它是"版本问题"
   assert.equal(errorFrame.safeParse({ t: 'error', code: 'version_too_old' }).success, false)
 })
 
-test('预算常量仍然从 frames 转出（下游从 dsh-remote-wire/frames 引它们）', () => {
+test('预算常量仍然从 frames 转出（下游从 @dsh-remote/protocol/frames 引它们）', () => {
   assert.ok(MAX_CIPHERTEXT_BYTES < MAX_RELAY_MESSAGE_BYTES)
   assert.equal(PROTOCOL_VERSION, 1)
 })
