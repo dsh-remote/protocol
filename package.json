@@ -1,31 +1,123 @@
 {
-  "name": "dsh-remote-control",
-  "private": true,
-  "version": "0.1.0",
-  "description": "Remote control for DeepSeek Harness: DSH plugin (Host) + self-hostable relay server + WeChat Mini Program client. Payload-level end-to-end encrypted.",
+  "name": "dsh-remote-wire",
+  "version": "2.0.21",
+  "description": "Wire protocol for DSH Remote Control: sealed-record crypto, KDF, pairing URI, control frames, payload catalog, keep-awake command builder. Pure functions — no I/O, no timers, no platform symbols.",
   "type": "module",
   "license": "MIT",
+  "author": "providcc",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/providcc/dsh-remote-protocol.git"
+  },
+  "homepage": "https://github.com/providcc/dsh-remote-protocol#readme",
+  "bugs": {
+    "url": "https://github.com/providcc/dsh-remote-protocol/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "deepseek",
+    "remote-control",
+    "protocol",
+    "websocket",
+    "wechat",
+    "miniprogram",
+    "e2e-encryption",
+    "tweetnacl"
+  ],
   "engines": {
     "node": ">=20"
   },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./frames": {
+      "types": "./dist/src/wire/frames.d.ts",
+      "default": "./dist/src/wire/frames.js"
+    },
+    "./limits": {
+      "types": "./dist/src/wire/limits.d.ts",
+      "default": "./dist/src/wire/limits.js"
+    },
+    "./registry": {
+      "types": "./dist/src/wire/registry.d.ts",
+      "default": "./dist/src/wire/registry.js"
+    },
+    "./classify": {
+      "types": "./dist/src/wire/classify.d.ts",
+      "default": "./dist/src/wire/classify.js"
+    },
+    "./errors": {
+      "types": "./dist/src/wire/errors.d.ts",
+      "default": "./dist/src/wire/errors.js"
+    },
+    "./negotiate": {
+      "types": "./dist/src/wire/negotiate.d.ts",
+      "default": "./dist/src/wire/negotiate.js"
+    },
+    "./idempotency": {
+      "types": "./dist/src/wire/idempotency.d.ts",
+      "default": "./dist/src/wire/idempotency.js"
+    },
+    "./payloads": {
+      "types": "./dist/src/wire/payloads.d.ts",
+      "default": "./dist/src/wire/payloads.js"
+    },
+    "./outbound": {
+      "types": "./dist/src/wire/outbound.d.ts",
+      "default": "./dist/src/wire/outbound.js"
+    },
+    "./keys": {
+      "types": "./dist/src/crypto/keys.d.ts",
+      "default": "./dist/src/crypto/keys.js"
+    },
+    "./record": {
+      "types": "./dist/src/crypto/record.d.ts",
+      "default": "./dist/src/crypto/record.js"
+    },
+    "./pairing": {
+      "types": "./dist/src/identity/pairing.d.ts",
+      "default": "./dist/src/identity/pairing.js"
+    },
+    "./ids": {
+      "types": "./dist/src/identity/ids.d.ts",
+      "default": "./dist/src/identity/ids.js"
+    },
+    "./sleep": {
+      "types": "./dist/src/platform/sleep.d.ts",
+      "default": "./dist/src/platform/sleep.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist/src"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "test": "pnpm -r test",
-    "gates": "node scripts/report-gates.mjs",
-    "e2e": "node e2e/run.mjs",
-    "repos:build": "cd dsh-remote-protocol && env -u NODE_OPTIONS pnpm build && cd ../dsh-remote-control && env -u NODE_OPTIONS pnpm -r build && cd ../dsh-remote-server && env -u NODE_OPTIONS pnpm build",
-    "install:profile": "sh dsh-remote-control/scripts/install-to-profile.sh",
-    "relay:local": "sh dsh-remote-server/scripts/relay-start.sh",
-    "check:mp-ui": "node scripts/check-mp-ui.mjs && node dsh-remote-mp/scripts/check-mp-contrast.mjs",
-    "mp:lazyload": "node scripts/mp-lazyload-report.mjs",
-    "mp:theme": "node dsh-remote-mp/scripts/gen-mp-theme.mjs",
-    "mp:shots": "node scripts/mp-shots.mjs",
-    "mp:probe": "node scripts/mp-probe.mjs",
-    "mp:upload": "node scripts/mp-upload.mjs",
-    "version:next": "node scripts/next-version.mjs",
-    "version:check": "node scripts/next-version.mjs --check"
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm build && node --test \"dist/tests/**/*.test.js\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
-    "@types/node": "^22.9.0"
-  }
+    "@types/node": "^26.6.3",
+    "prettier": "^3.3.3",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@11.7.0"
 }
