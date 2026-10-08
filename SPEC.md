@@ -530,7 +530,7 @@ client 既收不到回复、也收不到 `unknown_session`，表现是"永远转
 | `cmd.answer`             | `cmdId`, `sessionId`, `requestId`, `answers[≥1]` | 回答提问                                            |
 | `cmd.resolve_permission` | `cmdId`, `sessionId`, `requestId`, `decision`    | 审批决定，逐字回传 host 下发的 `options[].id`       |
 | `cmd.keep_awake`         | `cmdId`, `enabled`                               | 防休眠开关，可选 `idleReleaseSec`                   |
-| `cmd.session_history`    | `cmdId`, `sessionId`                             | 读历史，游标分页（§10.4）                           |
+| `cmd.session_history`    | `cmdId`, `sessionId`, `beforeSeq?`, `since?`, `limit?` | 读历史。`beforeSeq` = 向后翻页；`since` = 向前补差量。**两者互斥**（§10.7） |
 | `cmd.new_session`        | `cmdId`                                          | 新建会话，可选 `workspace`（目录绝对路径）          |
 | `cmd.get_pending`        | `cmdId`                                          | 拉还挂着的审批/提问，可选 `sessionId`               |
 | `cmd.archive_session`    | `cmdId`, `sessionId`                             | 归档（缺省）/ 取消归档（`archived:false`）。见 A-1  |
@@ -560,7 +560,7 @@ client 既收不到回复、也收不到 `unknown_session`，表现是"永远转
 | `ev.keep_awake_state`                              | `enabled`, `active`, `platform`, `backend`        | **不带 `sessionId`**（契约 F11）                                                     |
 | `ev.model`                                         | `sessionId`, `model`, `canSwitch`                 | 模型是**按会话**的；`canSwitch` MUST 由生产侧显式给出                                |
 | `ev.result`                                        | `cmdId`, `ok`                                     | 命令回执                                                                             |
-| `ev.session_history`                               | `sessionId`, `cmdId`, `items[]`, `nextBeforeSeq?` | 一页历史                                                                             |
+| `ev.session_history`                               | `sessionId`, `cmdId`, `items[]`, `nextBeforeSeq?`, `latestSeq?` | 一页历史。`latestSeq` 是 `cmd.session_history.since` 的取值来源（§10.7）             |
 
 **历史为什么复用实时载荷**（§9.3 的 `ev.session_history.items[]`）：
 client 侧的块流模型已经把 `ev.message_delta` 与 `ev.tool_event` 的回放规则写死了一遍。
@@ -622,6 +622,38 @@ client 侧的块流模型已经把 `ev.message_delta` 与 `ev.tool_event` 的回
 > **为什么"没有游标"就等于"到底了"，而不用 `hasMore`**：两个字段表达同一件事，
 > 迟早会出现"说还有、却没给游标"这种自相矛盾的载荷，而它的表现是
 > 「加载更早」点了没反应，且**没有任何报错**。一个字段就没有这种状态。
+
+### 10.7 断线补差量（`since` 游标）
+
+§10.4 的 R5 只覆盖了"向更早翻页"。断线重连要补的是**另一个方向**：手机记住每一页的
+`ev.session_history.latestSeq`，重连后带 `cmd.session_history.since` 回来要那几秒。
+
+| 编号   | 义务                                                                                       |
+| ------ | ------------------------------------------------------------------------------------------ |
+| **S1** | `since` 与 `beforeSeq` **互斥**：同时给出 MUST 被拒（schema 层）                          |
+| **S2** | `since` 是**排他下界**（`seq > since`）——它就是手机"已看到的最大 seq"                 |
+| **S3** | host MUST 在每页 `ev.session_history` 里给出 `latestSeq`，**空页也要给**                  |
+| **S4** | `since` 落在保留窗口之外时 host MUST 回 `error{code:'history_window_exceeded'}`         |
+| **S5** | host MUST NOT 静默从窗口头部开始给（那会让手机以为补齐了，中间那段永远补不回来）       |
+| **S6** | client 在对端**没有** `drc.payload.resume` 能力位时 MUST NOT 发 `since`，退回重拉一页    |
+
+**为什么 S1 要"互斥"而不是"以某个为准"**：两个方向一起走没有可定义的语义。放行等于让
+实现自己挑一个，而挑错的表现是**静默漏消息**——手机上看起来只是"少了几行回复"。
+
+**为什么 S3 的 `latestSeq` 不能让手机自己算**：一页可能是空的（这期间没有新条目），
+空页没有任何 seq 可取。手机要么记一个陈旧的值（下次重复收到已看过的条目），
+要么记 0（下次把整段历史重拉一遍）。这个字段让"你现在到哪了"始终有答案。
+
+**为什么 S4/S5 要一个专门的码**：主机只保留最近 N 条 seq（环形缓冲，与时钟无关）。
+`since` 落在窗口外时，"少给几条"是最坏的处理——手机会以为补齐了，而那段**永远补不回来**。
+明确报错让客户端改走"拉历史"这条路，那条路至少能拿到窗口内的全部内容。
+
+**保留窗口的单位是 seq 条数，不是时间**：时间窗口在静默会话上白占内存（保住一堆没人读的
+seq），在高速会话上又太短。seq 单调，环形缓冲天然有界。
+
+> **这些全是会话层概念，与传输无关**：游标、ack、`since` 在 WS 上照做，在 HTTP+SSE 上
+> 同样成立。反过来，**不许**因为"我们是 WebSocket 所以能顺手拿到 seq"就把它写进协议——
+> 换传输时那些推理会全部失效（V3-PLAN §9.2）。
 
 ### 10.6 会话归档
 
@@ -716,6 +748,12 @@ MUST NOT 是"静默丢弃"（§4.3.2）。
 | `rate_limited`              | 限速                    | ✅     | 按 `retryAfterMs` 退避                                |
 | `internal`                  | 中继内部错误            | ✅     | 重试                                                  |
 | `unsupported_protocol`      | **（新）** 版本不可接受 | ❌     | 明确告知用户后停止                                    |
+| `history_window_exceeded`  | `since` 在保留窗口之外  | ❌     | client MUST 改拉历史（§10.7 S4）                    |
+
+> **`history_window_exceeded` 为什么不可重试**：重发同一条 `since` 仍然落在窗口外。
+> 标成可重试会让端点在一条**永远不会自愈**的请求上耗尽重试额度，而正确动作是
+> **换一条路**（拉历史）。这也是 §12.2 这张表存在的理由——错误码只说"发生了什么"，
+> 而端点真正需要的是"该怎么办"。
 
 ### 12.3 MUST
 

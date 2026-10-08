@@ -342,6 +342,18 @@ export const evSessionHistory = z.object({
   items: z.array(historyItem),
   /** 有更早的一页时给出游标；**没有这个字段就表示这是最初的一页**。 */
   nextBeforeSeq: z.number().int().nonnegative().optional(),
+  /**
+   * 这一页里最大的 `seq`（没有条目时是该会话当前的 seq）。
+   *
+   * **它是 `cmd.session_history.since` 的取值来源**：手机记住它，重连时带回来补差量。
+   * 为什么不用"最后一条的 seq"让手机自己算：一页可能是空的（这期间没有新条目），
+   * 而空页没有任何 seq 可取——于是手机要么记一个陈旧的值（下次重复收到已看过的条目），
+   * 要么记 0（下次把整段历史重拉一遍）。这个字段让"你现在到哪了"始终有答案。
+   *
+   * ⚠️ 它**不是**能力位那样的"可选支持"：老主机不发这个字段时，手机看到 `undefined`
+   * 就退回 v2 的重拉一页（能力位 `drc.payload.resume` 决定走哪条路）。
+   */
+  latestSeq: z.number().int().nonnegative().optional(),
 })
 
 /** evSessionChanged 的推导类型。 */
@@ -556,7 +568,7 @@ export const cmdListSessions = z.object({
  * **老手机 + 新主机**（不发这个字段，主机走它自己的兜底）都照旧工作。
  * 一个可选字段不值得升协议版本——升了会让"两端版本必须配对"从建议变成硬要求。
  *
- * 取值是**目录绝对路径**（`/Users/linbin/dsh-remote-control`），与 `SessionSummary.workspace`
+ * 取值是**目录绝对路径**（`/Users/x/dsh-remote-control`），与 `SessionSummary.workspace`
  * 同一个字符串——手机那边本来就是从会话列表里原样取出来的，不做换算，也就不存在两侧对不上的可能。
  */
 export const cmdNewSession = z.object({
@@ -579,20 +591,47 @@ export const cmdKeepAwake = z.object({
  *
  * 分页语义刻意做成「**游标由主机给、小程序原样回传**」：
  * - 不带 `beforeSeq` = 要最新的一页；
- * - 带 `beforeSeq` = 要 `seq < beforeSeq` 的那一页，取值来自上一次响应的 `nextBeforeSeq`。
+ * - 带 `beforeSeq` = 要 `seq < beforeSeq` 的那一页，取值来自上一次响应的 `nextBeforeSeq`；
+ * - 带 `since` = **向前补差量**（要 `seq > since` 的那些），与 `beforeSeq` **互斥**。
  *
  * 为什么不按"第几页/每页 N 条"来切：一条原始内核事件可能被折叠成 0 条（空文本的
  * assistant/message）、1 条或 2 条（tool/call + tool/result）线格式条目，
  * 小程序既不知道折叠规则也不该知道。让它按条数推算翻页，迟早会跳过或重发一段。
+ *
+ * ## 补差量（`since`）—— 为什么是会话层概念，不是传输层
+ *
+ * 断线重连后手机要补上"我不在的那几秒"。v2 的做法是**重拉一页历史**，而那一页
+ * 是按 `beforeSeq` 向更早翻的——于是补差量与翻页混在同一条命令上，语义要靠
+ * 参数组合去猜。`since` 把它显式化：**向前**（`seq >`）与**向后**（`seq <`）是两个方向。
+ *
+ * ⚠️ 两条硬约束：
+ * 1. **互斥**：`since` 与 `beforeSeq` 同时出现 ⇒ schema 拒（下面 refine）。
+ *    "两个方向一起走"没有可定义的语义，放行等于让实现自己挑一个，而挑错的表现是
+ *    **静默漏掉一段消息**。
+ * 2. **窗口外要明说**：主机只保留最近 N 条（`since` 落在窗口外就回
+ *    `history_window_exceeded`），**不许**静默从窗口头部开始给——那会让手机
+ *    以为补齐了，实际中间缺一段。
+ *
+ * 这两个约束都是**会话层**的，与用 WS 还是 SSE 承载无关（V3-PLAN §5.1）。
  */
-export const cmdSessionHistory = z.object({
-  t: z.literal('cmd.session_history'),
-  cmdId: nonEmpty,
-  sessionId: nonEmpty,
-  beforeSeq: z.number().int().nonnegative().optional(),
-  /** 上限 200：一次翻页要不动整条会话，也不能是一条能顶满中继帧预算的巨帧。 */
-  limit: z.number().int().positive().max(200).optional(),
-})
+export const cmdSessionHistory = z
+  .object({
+    t: z.literal('cmd.session_history'),
+    cmdId: nonEmpty,
+    sessionId: nonEmpty,
+    beforeSeq: z.number().int().nonnegative().optional(),
+    /**
+     * 向前补差量：要 `seq > since` 的那些。取值来自上一次收到的 `ev.session_history.latestSeq`。
+     * 与 `beforeSeq` 互斥（见下面 refine）。
+     */
+    since: z.number().int().nonnegative().optional(),
+    /** 上限 200：一次翻页要不动整条会话，也不能是一条能顶满中继帧预算的巨帧。 */
+    limit: z.number().int().positive().max(200).optional(),
+  })
+  .refine((v) => v.since === undefined || v.beforeSeq === undefined, {
+    message: 'since（向前补差量）与 beforeSeq（向后翻页）互斥：两个方向一起走没有可定义的语义',
+    path: ['since'],
+  })
 
 /**
  * 拉取还挂着的审批/提问（手机拉，`pending` 重发）。

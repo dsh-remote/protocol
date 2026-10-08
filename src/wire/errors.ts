@@ -70,6 +70,7 @@ const DESCRIPTIONS: Readonly<Record<ErrorCode, string>> = {
   bad_frame: '帧名字对但形状不合法',
   bad_json: '不是合法的 JSON 对象',
   unknown_frame: '帧名不在协议注册表里',
+  history_window_exceeded: 'since 落在主机保留窗口之外（补不回来，客户端应改拉历史）',
   rate_limited: '命中限速配额',
   unsupported_protocol: '对端协议版本不可接受',
   internal: '中继内部错误',

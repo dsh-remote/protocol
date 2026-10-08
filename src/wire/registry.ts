@@ -191,6 +191,17 @@ export const CAPABILITY_IDS = [
   'drc.pairing.token',
   'drc.payload.attachments',
   'drc.payload.history',
+  /**
+   * 支持 `cmd.session_history.since` 向前补差量 + `ev.session_history.latestSeq`。
+   *
+   * **为什么是能力位而不是版本号**：协议 v1 的帧名与载荷名冻结（规范 §5.2 V1），
+   * 加这个字段属"加性变更"；而手机要知道**对端是否真的会回 `latestSeq`**，
+   * 才能决定走补差量还是退回重拉一页。版本号表达不了"这一项有没有"。
+   *
+   * 老主机缺这一位时，手机**必须**退回重拉一页而不是发 `since`——
+   * 那是可验证的降级路径（反向判据见 `tests/resume-capability.test.ts`）。
+   */
+  'drc.payload.resume',
   'drc.payload.new-session.workspace',
   'drc.payload.get-pending',
   'drc.payload.keep-awake',
@@ -214,6 +225,7 @@ export const CAPABILITY_DESCRIPTIONS: Readonly<Record<CapabilityId, string>> = {
   'drc.pairing.token': '支持 6 位码单独输入',
   'drc.payload.attachments': '支持 images / files 附件',
   'drc.payload.history': '支持游标分页的历史',
+  'drc.payload.resume': '支持 cmd.session_history.since 向前补差量（缺这一位则退回重拉一页）',
   'drc.payload.new-session.workspace': '支持 cmd.new_session.workspace',
   'drc.payload.get-pending': '支持 cmd.get_pending',
   'drc.payload.keep-awake': '支持防休眠开关',

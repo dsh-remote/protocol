@@ -322,6 +322,17 @@ export const errorCodes = [
   'bad_json',
   'unknown_frame',
   /**
+   * `cmd.session_history.since` 落在主机的保留窗口之外（V3-PLAN §5.1）。
+   *
+   * **它必须是一个明确的码，而不是"少给几条"**：主机只保留最近 N 条 seq，
+   * 而手机记的 `since` 可能比那更早（长时间离线）。此时若静默从窗口头部开始给，
+   * 手机会以为补齐了，实际中间缺一段——而那段永远补不回来。
+   *
+   * ⚠️ **不可重试**：重发同一条 `since` 仍然是窗口外。客户端该做的是**改拉历史**
+   * （退回 v2 的重拉一页），这也是它不在 `RETRYABLE` 里的原因。
+   */
+  'history_window_exceeded',
+  /**
    * 对端的对端版本落在 `[MIN_SUPPORTED_PROTOCOL, 本端]` 之外（规范 §5.2 V3）。
    *
    * 为什么不复用 `bad_frame`：它是**版本问题**而不是形状问题，而它唯一该触发的
