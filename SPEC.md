@@ -522,18 +522,18 @@ client 既收不到回复、也收不到 `unknown_session`，表现是"永远转
 > **封闭**是安全属性，不是实现细节：手机能让这台机器做的事，就是这张表里的这几条。
 > 没有任意工具执行、任意文件路径、任意 shell。
 
-| `t`                      | 必填                                             | 语义                                                |
-| ------------------------ | ------------------------------------------------ | --------------------------------------------------- |
-| `cmd.send_prompt`        | `cmdId`, `sessionId`, `text`                     | 发指令。可选 `images[≤4]` / `files[≤4]`             |
-| `cmd.list_sessions`      | `cmdId`                                          | 请求会话列表；host MUST 额外推 `ev.session_changed` |
-| `cmd.interrupt`          | `cmdId`, `sessionId`                             | 中断当前回合                                        |
-| `cmd.answer`             | `cmdId`, `sessionId`, `requestId`, `answers[≥1]` | 回答提问                                            |
-| `cmd.resolve_permission` | `cmdId`, `sessionId`, `requestId`, `decision`    | 审批决定，逐字回传 host 下发的 `options[].id`       |
-| `cmd.keep_awake`         | `cmdId`, `enabled`                               | 防休眠开关，可选 `idleReleaseSec`                   |
+| `t`                      | 必填                                                   | 语义                                                                        |
+| ------------------------ | ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `cmd.send_prompt`        | `cmdId`, `sessionId`, `text`                           | 发指令。可选 `images[≤4]` / `files[≤4]`                                     |
+| `cmd.list_sessions`      | `cmdId`                                                | 请求会话列表；host MUST 额外推 `ev.session_changed`                         |
+| `cmd.interrupt`          | `cmdId`, `sessionId`                                   | 中断当前回合                                                                |
+| `cmd.answer`             | `cmdId`, `sessionId`, `requestId`, `answers[≥1]`       | 回答提问                                                                    |
+| `cmd.resolve_permission` | `cmdId`, `sessionId`, `requestId`, `decision`          | 审批决定，逐字回传 host 下发的 `options[].id`                               |
+| `cmd.keep_awake`         | `cmdId`, `enabled`                                     | 防休眠开关，可选 `idleReleaseSec`                                           |
 | `cmd.session_history`    | `cmdId`, `sessionId`, `beforeSeq?`, `since?`, `limit?` | 读历史。`beforeSeq` = 向后翻页；`since` = 向前补差量。**两者互斥**（§10.7） |
-| `cmd.new_session`        | `cmdId`                                          | 新建会话，可选 `workspace`（目录绝对路径）          |
-| `cmd.get_pending`        | `cmdId`                                          | 拉还挂着的审批/提问，可选 `sessionId`               |
-| `cmd.archive_session`    | `cmdId`, `sessionId`                             | 归档（缺省）/ 取消归档（`archived:false`）。见 A-1  |
+| `cmd.new_session`        | `cmdId`                                                | 新建会话，可选 `workspace`（目录绝对路径）                                  |
+| `cmd.get_pending`        | `cmdId`                                                | 拉还挂着的审批/提问，可选 `sessionId`                                       |
+| `cmd.archive_session`    | `cmdId`, `sessionId`                                   | 归档（缺省）/ 取消归档（`archived:false`）。见 A-1                          |
 
 **每条 `cmd.*` 的 MUST：**
 
@@ -546,20 +546,20 @@ client 既收不到回复、也收不到 `unknown_session`，表现是"永远转
 
 ### 9.3 事件（host → client）
 
-| `t`                                                | 关键字段                                          | 语义                                                                                 |
-| -------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `ev.session_changed`                               | `sessions[]`                                      | **全量快照**，会话列表的唯一数据源                                                   |
-| `ev.message_delta`                                 | `messageId`, `delta`                              | 流式正文；每条消息最终 MUST 有一条 `done:true`，**空文本的 done 帧也不可被合并丢弃** |
-| `ev.tool_event`                                    | `callId`, `phase`                                 | 同一次调用稳定唯一，client 用它原位更新同一行                                        |
-| `ev.permission_request` / `ev.permission_resolved` | `requestId`                                       | 审批卡的开与收                                                                       |
-| `ev.question_request` / `ev.question_resolved`     | `requestId`                                       | 提问卡的开与收                                                                       |
-| `ev.run_state`                                     | `state ∈ {running, idle}`                         | 只有这两个值会让 client 收起挂着的卡                                                 |
-| `ev.todo`                                          | `todos[]`                                         | **全量快照**                                                                         |
-| `ev.retry`                                         | `attempt`, `max`, `reason?`                       | 正在重试                                                                             |
-| `ev.compaction`                                    | `state ∈ {started, ended, failed}`                | **failed 与 ended 是两件事，不许合并**                                               |
-| `ev.keep_awake_state`                              | `enabled`, `active`, `platform`, `backend`        | **不带 `sessionId`**（契约 F11）                                                     |
-| `ev.model`                                         | `sessionId`, `model`, `canSwitch`                 | 模型是**按会话**的；`canSwitch` MUST 由生产侧显式给出                                |
-| `ev.result`                                        | `cmdId`, `ok`                                     | 命令回执                                                                             |
+| `t`                                                | 关键字段                                                        | 语义                                                                                 |
+| -------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `ev.session_changed`                               | `sessions[]`                                                    | **全量快照**，会话列表的唯一数据源                                                   |
+| `ev.message_delta`                                 | `messageId`, `delta`                                            | 流式正文；每条消息最终 MUST 有一条 `done:true`，**空文本的 done 帧也不可被合并丢弃** |
+| `ev.tool_event`                                    | `callId`, `phase`                                               | 同一次调用稳定唯一，client 用它原位更新同一行                                        |
+| `ev.permission_request` / `ev.permission_resolved` | `requestId`                                                     | 审批卡的开与收                                                                       |
+| `ev.question_request` / `ev.question_resolved`     | `requestId`                                                     | 提问卡的开与收                                                                       |
+| `ev.run_state`                                     | `state ∈ {running, idle}`                                       | 只有这两个值会让 client 收起挂着的卡                                                 |
+| `ev.todo`                                          | `todos[]`                                                       | **全量快照**                                                                         |
+| `ev.retry`                                         | `attempt`, `max`, `reason?`                                     | 正在重试                                                                             |
+| `ev.compaction`                                    | `state ∈ {started, ended, failed}`                              | **failed 与 ended 是两件事，不许合并**                                               |
+| `ev.keep_awake_state`                              | `enabled`, `active`, `platform`, `backend`                      | **不带 `sessionId`**（契约 F11）                                                     |
+| `ev.model`                                         | `sessionId`, `model`, `canSwitch`                               | 模型是**按会话**的；`canSwitch` MUST 由生产侧显式给出                                |
+| `ev.result`                                        | `cmdId`, `ok`                                                   | 命令回执                                                                             |
 | `ev.session_history`                               | `sessionId`, `cmdId`, `items[]`, `nextBeforeSeq?`, `latestSeq?` | 一页历史。`latestSeq` 是 `cmd.session_history.since` 的取值来源（§10.7）             |
 
 **历史为什么复用实时载荷**（§9.3 的 `ev.session_history.items[]`）：
@@ -628,14 +628,14 @@ client 侧的块流模型已经把 `ev.message_delta` 与 `ev.tool_event` 的回
 §10.4 的 R5 只覆盖了"向更早翻页"。断线重连要补的是**另一个方向**：手机记住每一页的
 `ev.session_history.latestSeq`，重连后带 `cmd.session_history.since` 回来要那几秒。
 
-| 编号   | 义务                                                                                       |
-| ------ | ------------------------------------------------------------------------------------------ |
-| **S1** | `since` 与 `beforeSeq` **互斥**：同时给出 MUST 被拒（schema 层）                          |
+| 编号   | 义务                                                                                  |
+| ------ | ------------------------------------------------------------------------------------- |
+| **S1** | `since` 与 `beforeSeq` **互斥**：同时给出 MUST 被拒（schema 层）                      |
 | **S2** | `since` 是**排他下界**（`seq > since`）——它就是手机"已看到的最大 seq"                 |
-| **S3** | host MUST 在每页 `ev.session_history` 里给出 `latestSeq`，**空页也要给**                  |
-| **S4** | `since` 落在保留窗口之外时 host MUST 回 `error{code:'history_window_exceeded'}`         |
-| **S5** | host MUST NOT 静默从窗口头部开始给（那会让手机以为补齐了，中间那段永远补不回来）       |
-| **S6** | client 在对端**没有** `drc.payload.resume` 能力位时 MUST NOT 发 `since`，退回重拉一页    |
+| **S3** | host MUST 在每页 `ev.session_history` 里给出 `latestSeq`，**空页也要给**              |
+| **S4** | `since` 落在保留窗口之外时 host MUST 回 `error{code:'history_window_exceeded'}`       |
+| **S5** | host MUST NOT 静默从窗口头部开始给（那会让手机以为补齐了，中间那段永远补不回来）      |
+| **S6** | client 在对端**没有** `drc.payload.resume` 能力位时 MUST NOT 发 `since`，退回重拉一页 |
 
 **为什么 S1 要"互斥"而不是"以某个为准"**：两个方向一起走没有可定义的语义。放行等于让
 实现自己挑一个，而挑错的表现是**静默漏消息**——手机上看起来只是"少了几行回复"。
@@ -748,7 +748,7 @@ MUST NOT 是"静默丢弃"（§4.3.2）。
 | `rate_limited`              | 限速                    | ✅     | 按 `retryAfterMs` 退避                                |
 | `internal`                  | 中继内部错误            | ✅     | 重试                                                  |
 | `unsupported_protocol`      | **（新）** 版本不可接受 | ❌     | 明确告知用户后停止                                    |
-| `history_window_exceeded`  | `since` 在保留窗口之外  | ❌     | client MUST 改拉历史（§10.7 S4）                    |
+| `history_window_exceeded`   | `since` 在保留窗口之外  | ❌     | client MUST 改拉历史（§10.7 S4）                      |
 
 > **`history_window_exceeded` 为什么不可重试**：重发同一条 `since` 仍然落在窗口外。
 > 标成可重试会让端点在一条**永远不会自愈**的请求上耗尽重试额度，而正确动作是

@@ -76,8 +76,7 @@ test('cmd.new_session 的 workspace 是**可选**的目录，缺省仍合法（�
   // 任何一个方向发版都不会把对方钉死。
   assert.ok(cmdNewSession.safeParse({ t: 'cmd.new_session', cmdId: 'c' }).success, '缺省必须仍合法')
   assert.ok(
-    cmdNewSession.safeParse({ t: 'cmd.new_session', cmdId: 'c', workspace: '/Users/x/dsh-remote-control' })
-      .success,
+    cmdNewSession.safeParse({ t: 'cmd.new_session', cmdId: 'c', workspace: '/Users/x/dsh-remote-control' }).success,
   )
   // 逐字保留：手机那边就是从 ev.session_changed 的 workspace 原样取出来的，
   // 任何"归一化"都会让两端对不上（与 SessionSummary.workspace 是同一个字符串）。

@@ -14,16 +14,16 @@ npm install @dsh-remote/protocol
 
 ## 结构
 
-| 子路径 | 内容 |
-|---|---|
-| `…/keys` | PSK 生成、两把方向密钥的 HKDF 风格派生、计数器 nonce |
-| `…/record` | `seal()` / `open()`——基于 tweetnacl 的密封记录 |
-| `…/frames` | 中继控制帧的 zod schema + 解析器（帧名冻结，v1） |
-| `…/limits` | 三端共享的数值预算（帧上限 / 附件上限 / 去重窗口） |
+| 子路径       | 内容                                                      |
+| ------------ | --------------------------------------------------------- |
+| `…/keys`     | PSK 生成、两把方向密钥的 HKDF 风格派生、计数器 nonce      |
+| `…/record`   | `seal()` / `open()`——基于 tweetnacl 的密封记录            |
+| `…/frames`   | 中继控制帧的 zod schema + 解析器（帧名冻结，v1）          |
+| `…/limits`   | 三端共享的数值预算（帧上限 / 附件上限 / 去重窗口）        |
 | `…/registry` | 帧名 / 载荷名 / 能力 id 的注册表（编译期与 zod 联合一致） |
-| `…/payloads` | `cmd.*` / `ev.*` 载荷目录的 zod schema |
-| `…/pairing` | `dshr:/p?...` 配对 URI 编解码、6 位码工具 |
-| `…/sleep` | 防休眠命令构造器（`caffeinate` / `systemd-inhibit`） |
+| `…/payloads` | `cmd.*` / `ev.*` 载荷目录的 zod schema                    |
+| `…/pairing`  | `dshr:/p?...` 配对 URI 编解码、6 位码工具                 |
+| `…/sleep`    | 防休眠命令构造器（`caffeinate` / `systemd-inhibit`）      |
 
 完整清单见 `package.json` 的 `exports`；根入口会把全部子路径再导出一次。
 

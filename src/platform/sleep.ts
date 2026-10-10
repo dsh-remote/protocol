@@ -31,8 +31,18 @@ export interface SleepCommand {
   args: string[]
 }
 
-/** 供状态上报使用的后端名。 */
-export type SleepBackend = 'caffeinate' | 'systemd-inhibit' | 'unsupported'
+/**
+ * 后端名（`ev.keep_awake_state.backend` 与 `ev.host_info.state.sleep` 两处 schema 都取这里）。
+ *
+ * 为什么值是元组而不是裸类型：`zod` 的枚举校验要的是**值**，不是类型，而类型是
+ * 编译期的东西。两处 schema 各手写一遍三个字符串，就等于把"后端名有几种"
+ * 写了两遍——加第四种后端时 zod 那份不会报错，只会**静默把新值拒掉**，
+ * 而症状是"这台主机的 ev.host_info 整帧被丢弃"，与"没发"长得一模一样。
+ */
+export const SLEEP_BACKENDS = ['caffeinate', 'systemd-inhibit', 'unsupported'] as const
+
+/** 单个后端名。类型由 `SLEEP_BACKENDS` 推导，保证两者不可能不同步。 */
+export type SleepBackend = (typeof SLEEP_BACKENDS)[number]
 
 /** 把平台映射到后端名（`ev.keep_awake_state.backend` 会直接显示在手机上）。 */
 export function detectBackend(platform: string): SleepBackend {

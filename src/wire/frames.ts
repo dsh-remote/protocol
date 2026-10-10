@@ -52,8 +52,12 @@ const pairingToken = z.string().regex(PAIRING_TOKEN_RE)
 /**
  * 能力列表（规范 §5.3 C1）。上限是**安全要求**，不是洁癖：
  * `hello` 在认证之前就能收到，一条超长数组会白占内存，而它对未认证的对端毫无价值。
+ *
+ * 导出是为了让 `ev.host_info.caps`（§13.2）用**同一条**校验器：两处各写一遍
+ * `.max(64)` 的话，改一处不会有任何信号，而症状是"hello 收得下、host_info 被拒"，
+ * 表现为手机上能力面时有时无。
  */
-const capabilityList = z.array(z.string().min(1).max(64)).max(64)
+export const capabilityList = z.array(z.string().min(1).max(64)).max(64)
 
 /**
  * 密文记录的合法性预检。

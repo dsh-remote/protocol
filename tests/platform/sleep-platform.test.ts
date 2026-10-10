@@ -26,7 +26,11 @@ test('三个平台各自如实上报：darwin/linux 有后端，win32 明说 uns
   assert.equal(detectBackend('darwin'), 'caffeinate')
   assert.equal(detectBackend('linux'), 'systemd-inhibit')
   // ⚠️ 这条是 A7 的核心断言：不是"暂时没实现"，而是**明确的上报**。
-  assert.equal(detectBackend('win32'), 'unsupported', 'win32 必须明说 unsupported：假装有后端会让插件去跑一条不存在的命令')
+  assert.equal(
+    detectBackend('win32'),
+    'unsupported',
+    'win32 必须明说 unsupported：假装有后端会让插件去跑一条不存在的命令',
+  )
   assert.equal(detectBackend('freebsd'), 'unsupported', '未知平台同样如实上报')
   assert.equal(detectBackend(''), 'unsupported', '空串（探测失败）也是 unsupported，不是抛异常也不是猜一个')
 })

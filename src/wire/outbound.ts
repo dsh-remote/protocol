@@ -33,6 +33,7 @@ import {
   type TodoItem,
   type EvRetry,
   type EvCompaction,
+  type EvHostInfo,
   type EvSessionHistory,
   type EvToolEvent,
   type HistoryItem,
@@ -423,6 +424,33 @@ export function keepAwakeState(args: {
   reason?: string
 }): EvKeepAwakeState {
   return { t: PAYLOAD_TYPES.evKeepAwakeState, ...args }
+}
+
+/**
+ * 主机能力/限额自述（§13.2）。**没有 `sessionId`**（F11）：能力面是主机级的。
+ *
+ * ## 为什么 `caps` 的宽严由调用方决定，而这里不兜底
+ *
+ * 少报一个能力位的代价是"明明支持却按不支持表现"（手机退回重拉一页，慢但不坏），
+ * 多报一个的代价是"发过去手机上干等"（`cmd.session_history` 等 12 秒超时）。
+ * 两种错**都不该被这个构造器悄悄修掉**：它不知道本插件到底接没接那条实现，
+ * 替调用方猜只会把一次能编译期发现的漏报变成一次线上降级。
+ * 所以参数表照收，取值纪律归 `transport/relay.ts` 的 `HOST_CAPABILITIES`——
+ * 那里每条都对着一个实现点，且有判据钉着。
+ */
+export function hostInfo(args: {
+  host: EvHostInfo['host']
+  caps: readonly CapabilityId[]
+  limits: EvHostInfo['limits']
+  state: EvHostInfo['state']
+}): EvHostInfo {
+  return {
+    t: PAYLOAD_TYPES.evHostInfo,
+    host: args.host,
+    caps: [...args.caps],
+    limits: args.limits,
+    state: args.state,
+  }
 }
 
 /**

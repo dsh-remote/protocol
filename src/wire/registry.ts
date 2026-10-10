@@ -112,8 +112,18 @@ export function isKnownFrameType(name: unknown): name is EndpointFrame['t'] | Re
 
 // ── 载荷名 ────────────────────────────────────────────────────────────
 
-/** client → host 的全部命令名（规范 §17.2）。 */
-export const CMD_TYPES: readonly CmdPayload['t'][] = [
+/**
+ * client → host 的全部命令名（规范 §17.2）。
+ *
+ * ⚠️ 结尾的 `as const satisfies` 不是风格问题，是下面那个 `_Assert` 能不能生效的**前提**。
+ * 原来这里写的是 `: readonly CmdPayload['t'][]`——注解把类型**拓宽**成了"任意命令名数组"，
+ * 于是 `(typeof CMD_TYPES)[number]` 就是 `CmdPayload['t']` 本身，
+ * `Exclude<A, A>` 恒为 `never`，那条 `_Assert` **永远为真**（它看起来像一道编译期闸门，
+ * 实际上一行代码都拦不住）。2026-10-08 加 `ev.host_info` 时漏登记 `EV_TYPES` 就是这么溜过去的，
+ * 最后是**运行时**那条 `registry.test.ts` 抓到的。
+ * `as const` 让元组保留字面量类型，`satisfies` 仍然检查每一项确实是合法的 t。
+ */
+export const CMD_TYPES = [
   PAYLOAD_TYPES.cmdSendPrompt,
   PAYLOAD_TYPES.cmdAnswer,
   PAYLOAD_TYPES.cmdResolvePermission,
@@ -124,7 +134,7 @@ export const CMD_TYPES: readonly CmdPayload['t'][] = [
   PAYLOAD_TYPES.cmdNewSession,
   PAYLOAD_TYPES.cmdGetPending,
   PAYLOAD_TYPES.cmdArchiveSession,
-]
+] as const satisfies readonly CmdPayload['t'][]
 type _CmdNamesMatchUnion = _Assert<
   Exclude<CmdPayload['t'], (typeof CMD_TYPES)[number]> extends never
     ? Exclude<(typeof CMD_TYPES)[number], CmdPayload['t']> extends never
@@ -133,8 +143,13 @@ type _CmdNamesMatchUnion = _Assert<
     : false
 >
 
-/** host → client 的全部事件名（规范 §17.3）。 */
-export const EV_TYPES: readonly EvPayload['t'][] = [
+/**
+ * host → client 的全部事件名（规范 §17.3）。
+ *
+ * `as const satisfies` 的理由与 `CMD_TYPES` 逐字相同——不给 `as const`，
+ * 下面那条 `_EvNamesMatchUnion` 就是一道永远为真的假闸门。
+ */
+export const EV_TYPES = [
   PAYLOAD_TYPES.evSessionChanged,
   PAYLOAD_TYPES.evMessageDelta,
   PAYLOAD_TYPES.evToolEvent,
@@ -147,10 +162,11 @@ export const EV_TYPES: readonly EvPayload['t'][] = [
   PAYLOAD_TYPES.evRetry,
   PAYLOAD_TYPES.evCompaction,
   PAYLOAD_TYPES.evKeepAwakeState,
+  PAYLOAD_TYPES.evHostInfo,
   PAYLOAD_TYPES.evModel,
   PAYLOAD_TYPES.evResult,
   PAYLOAD_TYPES.evSessionHistory,
-]
+] as const satisfies readonly EvPayload['t'][]
 type _EvNamesMatchUnion = _Assert<
   Exclude<EvPayload['t'], (typeof EV_TYPES)[number]> extends never
     ? Exclude<(typeof EV_TYPES)[number], EvPayload['t']> extends never

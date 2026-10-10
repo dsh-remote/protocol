@@ -24,6 +24,8 @@
  * 不会把对端多塞的东西原样转发到手机上。
  */
 import { z } from 'zod'
+import { SLEEP_BACKENDS } from '../platform/sleep.js'
+import { capabilityList } from './frames.js'
 import { MAX_FILE_ATTACHMENTS, MAX_IMAGE_ATTACHMENTS } from './limits.js'
 
 /** 会话状态枚举。拼错一个字符，手机端徽标会退化成"空闲"——归档会话因此看着像正常会话。 */
@@ -252,6 +254,87 @@ export const evKeepAwakeState = z.object({
   reason: z.string().optional(),
 })
 
+/**
+ * 主机**此刻真正执行**的一组限额（规范 §13.2 的 `limits`）。
+ *
+ * ## 为什么这个载荷非有不可（L2 的那条义务）
+ *
+ * 同一个"功能存在"，在手机上可能表现为**三种**不同的东西：可点、置灰、根本不出现。
+ * 从形状里推断必然在边界情形下静默错——§5.3 的 `ev.model` 就是实例：
+ * 「内核不能换」与「能换但清单为空」在形状上分不出来，于是手机置灰了本来能点的。
+ * 附件的条数上限同理：手机按自己写死的 4 去允许，而主机这一代只收 2——
+ * 用户看到的是"选好的第 3 张，发出去没了"，没有任何报错。
+ *
+ * ## 每个字段为什么必须有值（不许 optional）
+ *
+ * 规范的 L2 要求报的是**此刻真正执行**的值，不是配置的名义值。既然主机侧真的
+ * 按这些数在拒（`runtime.ts` 的 `cmd.send_prompt`），它就没有"我不知道"这种状态——
+ * 把字段设成 optional 只会给"漏填一个、手机退回猜"留一条路，而那正是本载荷要消灭的东西。
+ *
+ * ⚠️ 反过来的那一半同样重要：**接收方不许用"字段缺失"推断"不支持"**（L3）。
+ * 老主机整帧都不发 `ev.host_info`，手机在收到它之前的默认状态是
+ * **"能力面未知 = 一律按不支持处理"**，而不是"按支持处理、等它到来"。
+ */
+export const hostLimits = z.object({
+  /** 单条消息能带几张图（来源 `MAX_IMAGE_ATTACHMENTS`）。 */
+  maxImageAttachments: z.number().int().nonnegative(),
+  /** 单条消息能带几个文件（来源 `MAX_FILE_ATTACHMENTS`）。 */
+  maxFileAttachments: z.number().int().nonnegative(),
+  /** 单个附件的**原始字节**上限（不是 base64 之后的长度，见 `limits.ts` 的口径说明）。 */
+  maxAttachmentBytes: z.number().int().positive(),
+  /** 一条用户消息的正文上限（来源 `MAX_TEXT_CHARS`）。 */
+  maxTextChars: z.number().int().positive(),
+})
+
+/**
+ * `ev.host_info` —— 主机显式上报自己的能力、限额与自身信息（规范 §13.2，GAP-5）。
+ *
+ * ## 它是 `drc.payload.resume` 那条路的**唯一**载体
+ *
+ * §10.7 的 S6 要求：client 在对端没有 `drc.payload.resume` 能力位时
+ * **MUST NOT** 发 `cmd.session_history.since`，必须退回"重拉一页"。
+ * 那么"对端有没有这一位"从哪来？只能是这里。
+ *
+ * 为什么不用中继的 `hello-ok.capabilities`：中继是**结构性零知识**的，
+ * 它连载荷都看不见（`enc` 之外无明文）。能力位确实也不是秘密（`hello` 是明文的），
+ * 但让中继来回答"主机支持什么"会把一个内容面的判断塞进一个**只负责转发**的角色，
+ * 而它一旦答错（旧中继 strip 掉这个字段、或缓存了一份过期的），
+ * 手机就会拿一个陈旧的能力面去决定发不发 `since`——表现是**静默漏消息**。
+ * 由主机自己在加密通道里说，这句话的时效性与真实性都由唯一知情者负责。
+ *
+ * ## 为什么 `caps` 是字符串数组而不是位图
+ *
+ * 加性演进（§5.2 V1）：新能力位加进数组即可，老解析器忽略不认识的 id。
+ * 位图要求两端对"第几位是什么"永远一致，任何一次重排都是破坏性变更。
+ * L1 的"`caps` MUST 取自注册表"是对**生产端**的义务（见 `registry.ts` 的
+ * `CAPABILITY_IDS`），不是校验器的约束——校验器不能拒不认识的 id，
+ * 否则一台更新过的主机会被整帧丢弃，而那正是加性演进要避免的。
+ */
+export const evHostInfo = z.object({
+  t: z.literal('ev.host_info'),
+  /**
+   * 主机自述。这里**没有** `sessionId`，将来也不许加（与 `ev.session_changed` /
+   * `ev.keep_awake_state` 同一条 F11）：能力面是主机级的，按会话分装会把
+   * "这台主机支持什么"变成"这条通道支持什么"，而手机只想知道前者。
+   */
+  host: z.object({
+    platform: nonEmpty,
+    arch: nonEmpty,
+    /** DSH profile 名（`desktop` / …）。诊断用，缺省不显示。 */
+    profile: z.string().optional(),
+    /** 内核载体名（`services` / `mock` / …）——手机上报"看不到工具行"时，这一格先看它。 */
+    carrier: z.string().optional(),
+    dshVersion: z.string().optional(),
+  }),
+  /** §17.4 的能力 id 列表。生产端取自 `CAPABILITY_IDS`（L1）。 */
+  caps: capabilityList,
+  limits: hostLimits,
+  state: z.object({
+    /** 防休眠走哪条系统后端；`unsupported` 是如实上报，不是错误。 */
+    sleep: z.enum(SLEEP_BACKENDS),
+  }),
+})
+
 /** 一个可切换的模型候选。`value` 会被手机逐字回传，所以它必须与主机侧的键同名同值。 */
 export const modelOption = z.object({
   /** 机器名（回传用），例如 `deepseek-chat`。 */
@@ -376,6 +459,10 @@ export type EvRunState = z.infer<typeof evRunState>
 export type EvTodo = z.infer<typeof evTodo>
 /** evKeepAwakeState 的推导类型。 */
 export type EvKeepAwakeState = z.infer<typeof evKeepAwakeState>
+/** evHostInfo 的推导类型。 */
+export type EvHostInfo = z.infer<typeof evHostInfo>
+/** hostLimits 的推导类型。 */
+export type HostLimits = z.infer<typeof hostLimits>
 /** evModel 的推导类型。 */
 export type EvModel = z.infer<typeof evModel>
 /** evResult 的推导类型。 */
@@ -420,6 +507,7 @@ export const evPayload = z.discriminatedUnion('t', [
   evRetry,
   evCompaction,
   evKeepAwakeState,
+  evHostInfo,
   evModel,
   evResult,
   evSessionHistory,
@@ -752,6 +840,7 @@ export const PAYLOAD_TYPES = {
   evRetry: 'ev.retry',
   evCompaction: 'ev.compaction',
   evKeepAwakeState: 'ev.keep_awake_state',
+  evHostInfo: 'ev.host_info',
   evModel: 'ev.model',
   evResult: 'ev.result',
   evSessionHistory: 'ev.session_history',

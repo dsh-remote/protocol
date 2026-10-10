@@ -55,6 +55,26 @@ export const MAX_ATTACHMENT_BYTES = 512 * 1024
 export const MAX_ATTACHMENT_TOTAL_BYTES = 512 * 1024
 
 /**
+ * 一条**用户消息正文**的字符上限。
+ *
+ * ## 为什么它必须有，而且必须有唯一来源
+ *
+ * 它是 `ev.host_info.limits.maxTextChars` 的取值来源（规范 §13.2）。那个字段的
+ * 义务是 L2——报的必须是主机**此刻真正执行**的值，不是配置的名义值。
+ * 所以这个数不许只写在文档里：主机侧真的拿它拒（见 `runtime.ts` 的 `cmd.send_prompt`），
+ * 否则 `ev.host_info` 就把一个空头承诺发给了手机，而手机据此置灰/放行。
+ *
+ * ## 为什么是 20000
+ *
+ * 与既有契约同值：`docs/legacy-spec/mp-client-contract.md` 的
+ * `MAX_TEXT_PER_MESSAGE=20000`（单条截断），chat 页渲染侧
+ * `MAX_TEXT_PER_BLOCK=20000` 也是这个数。取同一个数是为了让"手机能渲染多大"
+ * 与"主机肯收多大"是同一条线——两个不同的数迟早会在中间留出一段
+ * 手机发得出去、主机收下、而渲染侧把它截掉的内容。
+ */
+export const MAX_TEXT_CHARS = 20_000
+
+/**
  * `cmdId` 去重窗口（毫秒）。规范 §10.2 I2/I4。
  *
  * MUST ≥ client 的最大命令重试间隔，否则"重发的那条"落在窗口外，

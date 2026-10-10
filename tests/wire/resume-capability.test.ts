@@ -32,7 +32,7 @@ import { sessionHistory } from '../../src/wire/outbound.js'
  */
 type HistoryEntry = z.infer<typeof evSessionHistory>['items'][number]
 const item = (seq: number, delta: string): HistoryEntry =>
-  ({ t: 'ev.message_delta', messageId: `m_${seq}`, delta, done: false } as HistoryEntry)
+  ({ t: 'ev.message_delta', messageId: `m_${seq}`, delta, done: false }) as HistoryEntry
 
 test('① since 与 beforeSeq 互斥：同时出现要当场拒', () => {
   const base = { t: 'cmd.session_history' as const, cmdId: 'c1', sessionId: 'ses_abc' }
@@ -67,7 +67,10 @@ test('③ latestSeq 是 since 的取值来源，且允许缺省（老主机不�
     '空页也要能报 latestSeq：否则手机要么记陈旧值（重复收）要么记 0（整段重拉）',
   )
   // 老主机不发这个字段 ⇒ 缺省必须合法（这是能力位降级路径的前提）
-  assert.ok(evSessionHistory.safeParse({ ...base, items: [item(1, 'a')] }).success, 'latestSeq 可缺省：老主机走 v2 路径')
+  assert.ok(
+    evSessionHistory.safeParse({ ...base, items: [item(1, 'a')] }).success,
+    'latestSeq 可缺省：老主机走 v2 路径',
+  )
 })
 
 test('④ 能力位 drc.payload.resume 已登记（缺它时手机要能退回重拉一页）', () => {
@@ -78,10 +81,7 @@ test('④ 能力位 drc.payload.resume 已登记（缺它时手机要能退回�
     // "实现说支持"是同一件事 —— 两处各判一次，迟早漂移。
     '能力位必须真的登记：手机靠它决定走补差量还是退回重拉一页',
   )
-  assert.ok(
-    CAPABILITY_DESCRIPTIONS['drc.payload.resume'],
-    '每个能力位都要有人话说明：describeCatalog 与排错日志靠它',
-  )
+  assert.ok(CAPABILITY_DESCRIPTIONS['drc.payload.resume'], '每个能力位都要有人话说明：describeCatalog 与排错日志靠它')
   // 反向：老主机**没有**这一位时，手机必须能判出来（这就是它存在的理由）
   const oldHost = CAPABILITY_IDS.filter((id: (typeof CAPABILITY_IDS)[number]) => id !== 'drc.payload.resume')
   assert.equal(
