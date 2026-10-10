@@ -7,11 +7,11 @@
   "author": "dsh-remote",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dsh-remote/dsh-remote-protocol.git"
+    "url": "git+https://github.com/dsh-remote/protocol.git"
   },
-  "homepage": "https://github.com/dsh-remote/dsh-remote-protocol#readme",
+  "homepage": "https://github.com/dsh-remote/protocol#readme",
   "bugs": {
-    "url": "https://github.com/dsh-remote/dsh-remote-protocol/issues"
+    "url": "https://github.com/dsh-remote/protocol/issues"
   },
   "keywords": [
     "dsh",
@@ -99,8 +99,7 @@
   ],
   "publishConfig": {
     "access": "public",
-    "provenance": false,
-    "_whyNoProvenance": "2026-08-09 决定：本仓 origin 在 Codeup、本地没有受支持的 CI，\n    npm 会拒绝生成 provenance（Automatic provenance generation not supported for provider: null）。\n    ⇒ 改为不带 provenance 发布，并在 docs/RELEASE.md 记下这个取舍与恢复条件。"
+    "provenance": true
   },
   "scripts": {
     "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
