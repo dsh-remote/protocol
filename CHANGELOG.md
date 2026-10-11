@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.1.2
+
+> 四个包一起 bump 到 `3.1.2`。**本包无代码改动**（版本号按约定与 plugin 同号）。
+> 实质内容都在 `relay`（认领 host token 的接口）与 `plugin`（默认中继 + 自动认领 + 设置页进阶一栏）。
+
+## 3.1.1
+
+> 四个包一起 bump 到 `3.1.1`。**本包无代码改动**（版本号按约定与 plugin 同号）。
+> 实质内容都在 `plugin`：`approvalTimeoutSec` 配置项被删除。
+
 ## 3.1.0
 
 > 四个包（`protocol` / `relay` / `plugin` / `client`）一起 bump 到 `3.1.0`。
