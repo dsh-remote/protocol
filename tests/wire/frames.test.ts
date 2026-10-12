@@ -42,12 +42,22 @@ test('小程序实际会发的三种帧都通过（F2 的形状，一个字段�
   assert.ok(parseEndpointFrame({ t: 'enc', sessionId: 'c_a1b2c3d4e5f6', ciphertext: CIPHER }))
 })
 
-test('hello：role 只认 host/client；token 只有 host 会带；未知 role 被拒', () => {
-  assert.ok(parseEndpointFrame({ t: 'hello', role: 'host', token: 't'.repeat(64), hostId: 'ab12cd34' }))
-  assert.equal(parseEndpointFrame({ t: 'hello', role: 'mp', clientId: 'x' }), null)
+test('hello：role 只认 host/client；token 只有 host 会带；未知 role 被拒；protocol 必填', () => {
+  const base = { protocol: PROTOCOL_VERSION }
+  assert.ok(parseEndpointFrame({ t: 'hello', role: 'host', ...base, token: 't'.repeat(64), hostId: 'ab12cd34' }))
+  assert.equal(parseEndpointFrame({ t: 'hello', role: 'mp', ...base, clientId: 'x' }), null)
   assert.equal(parseEndpointFrame({ t: 'hello' }), null)
-  assert.equal(helloFrame.safeParse({ t: 'hello', role: 'client', clientId: '' }).success, false, '空 clientId 无意义')
-  assert.equal(helloFrame.safeParse({ t: 'hello', role: 'client', clientId: 'x'.repeat(200) }).success, false)
+  // ⚠️ 2026-10-11 晚：**不带 protocol 的 hello 一律作废**（单版本制）。
+  // 原来那条"缺省视为 1"的容忍删掉了：它让"两个不同版本的端"以"连上了但什么都不会发生"
+  // 的形式撞在一起，而没有任何一层会报错。
+  assert.equal(parseEndpointFrame({ t: 'hello', role: 'host', token: 'x' }), null, 'protocol 是必填')
+  assert.equal(parseEndpointFrame({ t: 'hello', role: 'host', protocol: 0 }), null, '版本号必须是正整数')
+  assert.equal(
+    helloFrame.safeParse({ t: 'hello', role: 'client', ...base, clientId: '' }).success,
+    false,
+    '空 clientId 无意义',
+  )
+  assert.equal(helloFrame.safeParse({ t: 'hello', role: 'client', ...base, clientId: 'x'.repeat(200) }).success, false)
 })
 
 test('pair-begin 不再携带 psk（D1 的执行点）', () => {
@@ -199,29 +209,41 @@ test('批量帧有项数上限：不能靠"塞很多项"绕过单帧预算', () 
 
 test('hello 的 clientMeta 与 token 有长度上限：未认证输入不许放大日志', () => {
   const long = 'x'.repeat(400 * 1024)
+  const base = { protocol: PROTOCOL_VERSION }
   assert.equal(
-    parseEndpointFrame({ t: 'hello', role: 'client', clientMeta: { platform: long } }),
+    parseEndpointFrame({ t: 'hello', role: 'client', ...base, clientMeta: { platform: long } }),
     null,
     '这两个字段会被中继逐字写进日志，没有上限就是一条未认证的日志放大通路',
   )
   assert.ok(
-    parseEndpointFrame({ t: 'hello', role: 'client', clientMeta: { platform: 'wechat-mp', label: '微信小程序' } }),
+    parseEndpointFrame({
+      t: 'hello',
+      role: 'client',
+      ...base,
+      clientMeta: { platform: 'wechat-mp', label: '微信小程序' },
+    }),
   )
-  assert.equal(parseEndpointFrame({ t: 'hello', role: 'host', token: 'x'.repeat(513) }), null)
-  assert.ok(parseEndpointFrame({ t: 'hello', role: 'host', token: 'x'.repeat(512) }))
+  assert.equal(parseEndpointFrame({ t: 'hello', role: 'host', ...base, token: 'x'.repeat(513) }), null)
+  assert.ok(parseEndpointFrame({ t: 'hello', role: 'host', ...base, token: 'x'.repeat(512) }))
 })
 
 // ── 版本 / 能力 / 重试提示（规范 §5.2、§5.3、§12.2）────────────────────
 
-test('hello / hello-ok 接受 capabilities，长度有上界（hello 在认证之前就能收到）', () => {
-  assert.ok(parseEndpointFrame({ t: 'hello', role: 'host', protocol: 1, capabilities: ['drc.v1'] }))
-  assert.ok(parseRelayFrame({ t: 'hello-ok', role: 'host', hostId: 'h', protocol: 1, capabilities: ['drc.v1'] }))
-  // 老对端不带它：缺省即"只支持基线"，不是"什么都不支持"
-  assert.ok(parseEndpointFrame({ t: 'hello', role: 'client', protocol: 1 }))
-  assert.equal(parseEndpointFrame({ t: 'hello', role: 'host', capabilities: 'drc.v1' }), null)
-  assert.equal(parseEndpointFrame({ t: 'hello', role: 'host', capabilities: ['x'.repeat(65)] }), null)
-  assert.equal(parseEndpointFrame({ t: 'hello', role: 'host', capabilities: Array(65).fill('drc.v1') }), null)
-  assert.ok(parseEndpointFrame({ t: 'hello', role: 'host', capabilities: Array(64).fill('drc.v1') }))
+test('capabilities 已经不是这个协议的一部分：多带它会被剥掉，protocol 才决定放不放行', () => {
+  const withCaps = parseEndpointFrame({
+    t: 'hello',
+    role: 'host',
+    protocol: PROTOCOL_VERSION,
+    capabilities: ['drc.v1'],
+  })
+  assert.ok(withCaps, '多一个不认识的键不该让整帧作废（zod 默认 strip）')
+  assert.ok(!('capabilities' in withCaps), 'capabilities 必须被剥掉：能力位整条机制已删除')
+  // hello-ok 同理
+  const ok = parseRelayFrame({ t: 'hello-ok', role: 'host', hostId: 'h', protocol: PROTOCOL_VERSION })
+  assert.ok(ok)
+  // 而 protocol 是**必填**：缺了就是形状坏（不是"缺省按 1 处理"）
+  assert.equal(parseEndpointFrame({ t: 'hello', role: 'client' }), null)
+  assert.equal(parseRelayFrame({ t: 'hello-ok', role: 'host', hostId: 'h' }), null)
 })
 
 test('error 带 retryAfterMs：正整数与上界都要守（它是端点算退避的唯一依据）', () => {

@@ -31,11 +31,8 @@ import { MAX_CIPHERTEXT_BYTES, MAX_RELAY_MESSAGE_BYTES } from './limits.js'
  */
 export { MAX_CIPHERTEXT_BYTES, MAX_RELAY_MESSAGE_BYTES }
 
-/** 协议版本。小程序恒发 `1`（F2）。 */
+/** 协议版本。三端同版本发版，**必填**；不等于本端时中继当场拒掉（见 `negotiate.ts`）。 */
 export const PROTOCOL_VERSION = 1
-
-/** 本协议能接受的**最低**对端版本（规范 §5.2 V3）。 */
-export const MIN_SUPPORTED_PROTOCOL = 1
 
 /** 6 位配对码。位数变了要同时动三处（中继校验、主机生成、小程序归一化），而小程序改不了。 */
 export const PAIRING_TOKEN_RE = /^\d{6}$/
@@ -48,16 +45,6 @@ export const PAIRING_TOKEN_RE = /^\d{6}$/
 
 const nonEmpty = z.string().min(1)
 const pairingToken = z.string().regex(PAIRING_TOKEN_RE)
-
-/**
- * 能力列表（规范 §5.3 C1）。上限是**安全要求**，不是洁癖：
- * `hello` 在认证之前就能收到，一条超长数组会白占内存，而它对未认证的对端毫无价值。
- *
- * 导出是为了让 `ev.host_info.caps`（§13.2）用**同一条**校验器：两处各写一遍
- * `.max(64)` 的话，改一处不会有任何信号，而症状是"hello 收得下、host_info 被拒"，
- * 表现为手机上能力面时有时无。
- */
-export const capabilityList = z.array(z.string().min(1).max(64)).max(64)
 
 /**
  * 密文记录的合法性预检。
@@ -91,12 +78,8 @@ export type ClientMeta = z.infer<typeof clientMeta>
 export const helloFrame = z.object({
   t: z.literal('hello'),
   role: z.enum(['host', 'client']),
-  protocol: z.number().int().positive().optional(),
-  /**
-   * 本端支持的能力（规范 §5.3）。**可选**：老对端不带，老中继也照旧工作——
-   * 缺省按"只支持基线"处理，而不是按"什么都不支持"拒绝。
-   */
-  capabilities: capabilityList.optional(),
+  /** **必填**：两端必须同版本（单版本制，见 `negotiate.ts`）。 */
+  protocol: z.number().int().positive(),
   /** host 的出站认证凭据，与中继的 `DRC_HOST_TOKEN` 定时安全比较。上限防超长串白占内存。 */
   token: z.string().min(1).max(512).optional(),
   hostId: nonEmpty.optional(),
@@ -205,9 +188,7 @@ export const helloOkFrame = z.object({
   /** 权威 clientId：小程序会采纳它并覆盖本地安装 id（F2/§3.6）。 */
   clientId: z.string().min(1).max(128).optional(),
   hostId: nonEmpty.optional(),
-  protocol: z.number().int().positive().optional(),
-  /** 中继自己支持的能力（规范 §5.3）。端点据此知道自己能向它要什么。 */
-  capabilities: capabilityList.optional(),
+  protocol: z.number().int().positive(),
 })
 
 /** 服务端权威 TTL。**主机必须据此改写本地过期时间**——这是旧实现的第一起事故。 */
@@ -265,11 +246,11 @@ export const pairFailFrame = z.object({
    * 症状不是"多扫一次码"：B 的 PSK 被丢弃意味着那条配对通道作废，
    * 而这正是文件头引用的那起「取错 PSK 全线解不开」事故的前置条件。
    *
-   * ## 兼容
+   * ## 为什么可选
    *
-   * **可选**：更老的中继不发它，主机侧必须继续按"当前展示的那张"兜底
-   * （`onPairFail` 的注释里写着这条兜底的原因）。发它的是中继、读它的是主机，
-   * 同一时刻两端版本必然一致——所以"新主机 + 老中继"才是需要兜底的那一侧。
+   * **中继不总能知道是哪一张**：帧本身坏掉那条分支（`server.ts` 里 `bad_frame` 那条）
+   * 手上没有 token 可点名。缺省时主机按"当前展示的那张"兜底
+   * （`onPairFail` 的注释里写着这条兜底的原因）。
    */
   pairingToken: z.string().min(1).max(16).optional(),
 })
@@ -295,11 +276,12 @@ export const peerLeftFrame = z.object({
    *     **再也不会带这个 convId 回来**。主机留着这条会话就是一条永远清不掉的幽灵。
    *   - 手机 socket 断了（切后台、断网）：D3 要求会话留着，回前台还要用它。
    *
-   * 不带这个标记 = 断线（老中继行为，保持 D3）；带 true = 主动解配，主机应当把
-   * 会话一并作废，于是 pill 从「手机离线」回到「未配对」（2026-10-05 用户报：
-   * 「mp 端解除配对，dsh 端执行的是手机离线」）。
+   * 不带这个标记 = **断线**（D3：会话留着，回前台还要用）；带 true = 主动解配，
+   * 主机应当把会话一并作废，于是 pill 从「手机离线」回到「未配对」
+   * （2026-10-05 用户报：「mp 端解除配对，dsh 端执行的是手机离线」）。
    *
-   * 可选是刻意的：老中继不会带这个字段，主机必须仍按「断线」处理，不能假定。
+   * 可选是**语义**上的：它表达"这次离开是断线还是解配"，缺省必须是断线
+   * （主机不许假定是解配 —— 那会把用户的一条会话凭空作废）。
    */
   unpaired: z.boolean().optional(),
 })
@@ -337,12 +319,12 @@ export const errorCodes = [
    */
   'history_window_exceeded',
   /**
-   * 对端的对端版本落在 `[MIN_SUPPORTED_PROTOCOL, 本端]` 之外（规范 §5.2 V3）。
+   * 对端报的协议版本与本端**不相等**（含没报，规范 §5.2 V3）。
    *
    * 为什么不复用 `bad_frame`：它是**版本问题**而不是形状问题，而它唯一该触发的
    * 动作是"把版本说清楚"——一句"帧形状非法"会让用户去查一个根本不存在的问题。
-   * 加它不破坏任何老实现：老 client 见到不认识的码会走兜底展示（`message || code`），
-   * 所以中继 MUST 同时带上一句中文 message（规范 §12.3 E1）。
+   * 不认识的码在客户端会走兜底展示（`message || code`），所以中继 MUST 同时带上一句
+   * 中文 message（规范 §12.3 E1）—— 反过来，"没带 message"就是把英文码弹给用户。
    */
   'unsupported_protocol',
   'internal',

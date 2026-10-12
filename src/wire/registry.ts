@@ -192,87 +192,6 @@ export function isEvType(name: unknown): name is EvPayload['t'] {
   return typeof name === 'string' && (EV_TYPES as readonly string[]).includes(name)
 }
 
-// ── 能力 id ───────────────────────────────────────────────────────────
-
-/**
- * 能力注册表（规范 §17.4）。`hello` / `hello-ok` 的 `capabilities` 只能从这里取。
- *
- * 能力的意义是**把"支持/不支持"从形状里解耦出来**：同一个字段，
- * "没有候选"、"不能切"、"这一代内核不支持"在手机上必须是三种不同的表现，
- * 而靠"字段有没有值"去推断必然在边界情形下静默错。
- */
-export const CAPABILITY_IDS = [
-  'drc.v1',
-  'drc.pairing.qr',
-  'drc.pairing.token',
-  'drc.payload.attachments',
-  'drc.payload.history',
-  /**
-   * 支持 `cmd.session_history.since` 向前补差量 + `ev.session_history.latestSeq`。
-   *
-   * **为什么是能力位而不是版本号**：协议 v1 的帧名与载荷名冻结（规范 §5.2 V1），
-   * 加这个字段属"加性变更"；而手机要知道**对端是否真的会回 `latestSeq`**，
-   * 才能决定走补差量还是退回重拉一页。版本号表达不了"这一项有没有"。
-   *
-   * 老主机缺这一位时，手机**必须**退回重拉一页而不是发 `since`——
-   * 那是可验证的降级路径（反向判据见 `tests/resume-capability.test.ts`）。
-   */
-  'drc.payload.resume',
-  'drc.payload.new-session.workspace',
-  'drc.payload.get-pending',
-  'drc.payload.keep-awake',
-  'drc.payload.archive-session',
-  'drc.payload.model',
-  'drc.payload.retry-compaction',
-  'drc.cmd.idempotency',
-  'drc.data.enc-batch',
-  'drc.host.resync',
-  'drc.host.info',
-  'drc.crypto.v2',
-] as const
-
-/** 一个能力 id。 */
-export type CapabilityId = (typeof CAPABILITY_IDS)[number]
-
-/** 每个能力 id 的人话说明——`describeCatalog()` 与排错日志用它。 */
-export const CAPABILITY_DESCRIPTIONS: Readonly<Record<CapabilityId, string>> = {
-  'drc.v1': '基线：协议 1、PSK 配对、enc 载荷',
-  'drc.pairing.qr': '支持 dshr: 二维码配对',
-  'drc.pairing.token': '支持 6 位码单独输入',
-  'drc.payload.attachments': '支持 images / files 附件',
-  'drc.payload.history': '支持游标分页的历史',
-  'drc.payload.resume': '支持 cmd.session_history.since 向前补差量（缺这一位则退回重拉一页）',
-  'drc.payload.new-session.workspace': '支持 cmd.new_session.workspace',
-  'drc.payload.get-pending': '支持 cmd.get_pending',
-  'drc.payload.keep-awake': '支持防休眠开关',
-  'drc.payload.archive-session': '支持 cmd.archive_session（归档/取消归档，不含 stopActivity）',
-  'drc.payload.model': '支持 ev.model',
-  'drc.payload.retry-compaction': '支持 ev.retry / ev.compaction',
-  'drc.cmd.idempotency': '本端按 cmdId 去重（规范 §10.2）',
-  'drc.data.enc-batch': '支持批量密文帧',
-  'drc.host.resync': '本端鉴权后会发 resync',
-  'drc.host.info': '本端会发 ev.host_info',
-  'drc.crypto.v2': '支持消息棘轮（规划中，规范 §7.6）',
-}
-
-const CAPABILITY_SET: ReadonlySet<string> = new Set<string>(CAPABILITY_IDS)
-
-/** 这是注册过的能力 id 吗？未知 id MUST 忽略而不是报错（规范 §15.2）。 */
-export function isKnownCapability(id: unknown): id is CapabilityId {
-  return typeof id === 'string' && CAPABILITY_SET.has(id)
-}
-
-/** 对端声明的能力里，本端**认识**的那些。未知 id 被丢掉。 */
-export function filterCapabilities(list: readonly unknown[] | undefined): CapabilityId[] {
-  if (!Array.isArray(list)) return []
-  return list.filter(isKnownCapability)
-}
-
-/** 对端是否声明了某个能力。 */
-export function hasCapability(list: readonly unknown[] | undefined, id: CapabilityId): boolean {
-  return Array.isArray(list) && list.includes(id)
-}
-
 // ── 自述 ─────────────────────────────────────────────────────────────
 
 /** 注册表自述。文档与闸门用它打印实测值，而不是各写一个数字（见 `scripts/report-gates.mjs`）。 */
@@ -283,7 +202,6 @@ export function describeCatalog(): {
   commands: number
   events: number
   payloads: number
-  capabilities: number
   errorCodes: number
 } {
   return {
@@ -293,7 +211,6 @@ export function describeCatalog(): {
     commands: CMD_TYPES.length,
     events: EV_TYPES.length,
     payloads: CMD_TYPES.length + EV_TYPES.length,
-    capabilities: CAPABILITY_IDS.length,
     errorCodes: errorCodes.length,
   }
 }

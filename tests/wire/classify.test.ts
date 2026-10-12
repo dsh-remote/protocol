@@ -29,7 +29,7 @@ test('合法帧原样通过，且拿回来的就是解析后的那一帧', () =>
   assert.equal(verdict.ok, true)
   assert.ok(verdict.ok)
   assert.equal(verdict.frame.t, 'enc')
-  assert.equal(classifyEndpointFrame({ t: 'hello', role: 'host', token: 'x' }).ok, true)
+  assert.equal(classifyEndpointFrame({ t: 'hello', role: 'host', protocol: 1, token: 'x' }).ok, true)
   assert.equal(classifyEndpointFrame({ t: 'ping' }).ok, true)
   assert.equal(classifyEndpointFrame({ t: 'resync', sessionIds: [] }).ok, true)
 })
@@ -60,7 +60,7 @@ test('第 5 步与第 6 步必须分开：名字不认识 = unknown_frame，名�
   assert.equal(!badShape.ok ? badShape.frameType : undefined, 'enc', '判定里要带上帧名：排错时它是第一条线索')
 
   // 这一条是本文件的重点：`hello` 的形状是错的，但它**是**协议里的帧名。
-  const knownNameWrongShape = classifyEndpointFrame({ t: 'hello', role: 'weird' })
+  const knownNameWrongShape = classifyEndpointFrame({ t: 'hello', role: 'weird', protocol: 1 })
   assert.ok(!knownNameWrongShape.ok && knownNameWrongShape.reason === 'bad_frame')
 })
 
@@ -98,7 +98,7 @@ test('pair-begin 形状坏回 bad_pair_begin（说给主机听更准确）', () 
 })
 
 test('relay → endpoint 侧：没有配对特例，也不预检密文字符集', () => {
-  assert.equal(classifyRelayFrame({ t: 'hello-ok', role: 'client' }).ok, true)
+  assert.equal(classifyRelayFrame({ t: 'hello-ok', role: 'client', protocol: 1 }).ok, true)
   const unknown = classifyRelayFrame({ t: 'nope' })
   assert.ok(!unknown.ok && unknown.reason === 'unknown_frame')
   const badShape = classifyRelayFrame({ t: 'paired' })

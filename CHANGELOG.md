@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.1.4
+
+> 四个包一起 bump 到 `3.1.4`。**主题：把"向后兼容"整条清掉**（用户裁决：没有真实用户，
+> 只留最优解与最新版本）。这一版**故意破坏线协议**：三端必须一次升到同一版本。
+
+- **单版本制**：删除协议协商的两条容忍路径 —— V1「`hello.protocol` 缺省视为 1」与
+  V3「对端落在 `[MIN_SUPPORTED_PROTOCOL, 本端]` 区间即可」。现在 `hello.protocol`
+  是**必填**，且必须**等于**本端版本，否则中继在 `hello` 那一刻回
+  `error{unsupported_protocol}` 并关连接（1002）。`MIN_SUPPORTED_PROTOCOL` 常量删除。
+- **能力位整条机制删除**：`hello` / `hello-ok` 的 `capabilities`、`ev.host_info.caps`、
+  `CAPABILITY_IDS` / `CAPABILITY_DESCRIPTIONS` / `isKnownCapability` / `hasCapability` /
+  `filterCapabilities` / `sharedCapabilities` 全部移除。它存在的目的是"对端**可能**不支持
+  某个载荷时降级"（典型是 `drc.payload.resume` ⇒ 不发 `since`）；单版本制下这个问题
+  不存在，于是手机**总是**发 `since`，宿主做不出差量时明确拒绝、客户端退回整页重读。
+- **形状只有一种**：`ev.permission_resolved` / `ev.question_resolved` 的 `sessionId` 与
+  `by` 从可选改为**必填**（生产端一直都给全，可选只留下"收错卡/收错会话"的空间）。
+- 判据：删掉整份 `e2e/wire-handshake-compat.test.mjs`（它手抄了 `hello@2.0.14` 的旧
+  schema 来证明三端加性兼容）；`negotiate` / `registry` / `resume-capability` /
+  `frames` / `payloads` / `outbound` 的判据按新契约重写。
+
 ## 3.1.3
 
 > 四个包一起 bump 到 `3.1.3`。

@@ -16,7 +16,6 @@ import {
   relayFrame,
 } from '../../src/wire/frames.js'
 import { parseEvPayload } from '../../src/wire/payloads.js'
-import type { CapabilityId } from '../../src/wire/registry.js'
 import {
   encBatchToClient,
   encToClient,
@@ -112,16 +111,17 @@ test('出站载荷都能被解析，且字段名与 schema 一致', () => {
     permissionRequest({ requestId: 'r1', action: '执行 bash', options: [{ id: 'approve', label: '允许' }] }),
     // 桌面与手机同时被问之后，"收回那张卡"成了出站面上的一等公民，所以它也得走同一条自证往返。
     permissionResolved({ requestId: 'r1', sessionId: 'ses_1', by: 'desktop' }),
-    permissionResolved({ requestId: 'r1' }),
+    // ⚠️ 2026-10-11 晚：`sessionId` 与 `by` 都成了必填 ⇒ 不再有"只给 requestId"那条形状
+    permissionResolved({ requestId: 'r1', sessionId: 'ses_2', by: 'cancelled' }),
     questionRequest({
       requestId: 'r1',
       questions: [{ id: 'q1', question: '选哪个环境？', options: [{ id: 'staging', label: '预发' }] }],
     }),
-    // 提问卡现在也带到期时刻：主机那边本来就 300 秒就判没答上，手机上看不见倒计时就是骗人。
+    // 提问卡可以带到期限（宿主给了才带；它没给就不带，见 `evQuestionRequest.expiresAt` 的字段注）。
     questionRequest({ requestId: 'r2', questions: [{ id: 'q1', question: '要哪个？' }], expiresAt: 'x' }),
     // 两端同时问提问这条也一样：输的那一侧要主动收。
     questionResolved({ requestId: 'r1', sessionId: 'ses_1', by: 'desktop' }),
-    questionResolved({ requestId: 'r1' }),
+    questionResolved({ requestId: 'r1', sessionId: 'ses_2', by: 'cancelled' }),
     runState({ state: 'idle', detail: 'interrupted', sessionId: 'ses_1' }),
     // 待办清单：全量快照，空数组也是合法载荷（内核清空清单时手机跟着清）。
     todoList({
@@ -266,7 +266,7 @@ test('enc 构造器：超过中继预算的密文当场抛，不发一帧注定�
 
 test('endpoint → relay 的七个构造器：产物全部过 parseEndpointFrame', () => {
   const frames = [
-    helloForHost({ token: 'tok', hostId: 'h1', label: 'mac', capabilities: ['drc.v1'] }),
+    helloForHost({ token: 'tok', hostId: 'h1', label: 'mac' }),
     helloForClient({ clientId: 'c1', clientMeta: { platform: 'wechat-mp', label: '微信小程序' } }),
     pairBegin('123456'),
     pairClaim('123456'),
@@ -283,20 +283,19 @@ test('endpoint → relay 的七个构造器：产物全部过 parseEndpointFrame
   }
 })
 
-test('hello 构造器：protocol 缺省即写出本端版本，capabilities 缺省就不带这个键', () => {
+test('hello 构造器：protocol **恒写出来**（必填字段），没有能力位这回事了', () => {
+  // 用一次显式窄化：`assert.ok(bare.t === 'hello')` 不会让 TS 收窄联合类型
   const bare = helloForHost({})
-  assert.ok(bare.t === 'hello')
   assert.deepEqual(keysOf(bare).sort(), ['protocol', 'role', 't'])
-  assert.equal(bare.protocol, PROTOCOL_VERSION)
-  assert.ok(!('capabilities' in bare), '缺省时不该有这个键——老中继 strip 掉它，但省掉更干净')
-  const full = helloForHost({ token: 't', hostId: 'h', label: 'L', capabilities: ['drc.v1', 'drc.host.resync'] })
-  assert.deepEqual(keysOf(full).sort(), ['capabilities', 'hostId', 'label', 'protocol', 'role', 't', 'token'])
-  // 能力数组是复制进去的：调用方之后改自己的数组，不该改掉已经造好的帧
-  const caps: CapabilityId[] = ['drc.v1']
-  const frame = helloForClient({ capabilities: caps })
-  caps.push('drc.host.info')
-  assert.ok(frame.t === 'hello')
-  assert.deepEqual(frame.capabilities, ['drc.v1'])
+  assert.equal((bare as { protocol?: number }).protocol, PROTOCOL_VERSION)
+  const full = helloForHost({ token: 't', hostId: 'h', label: 'L' })
+  assert.deepEqual(keysOf(full).sort(), ['hostId', 'label', 'protocol', 'role', 't', 'token'])
+  // client 侧同样必带 protocol（"缺省就省掉"那条对老对端的容忍已经删掉）
+  const asClient = helloForClient({ clientId: 'c1' })
+  assert.equal((asClient as { protocol?: number }).protocol, PROTOCOL_VERSION)
+  // 判据注入另一个版本号是允许的（用来造"版本对不上"），但**必须显式**
+  const injected = helloForClient({ protocol: 9 })
+  assert.equal((injected as { protocol?: number }).protocol, 9)
 })
 
 test('encToRelay 与 encBatchToRelay 与发给 client 的那对一样守密文长度', () => {
@@ -384,11 +383,12 @@ test('makeError：retryAfterMs 缺省就不带这个键，带了必须是正整�
 // "作废当前展示的那张"——多码并存时它会作废错的那张（屏幕上是有效的码 B，
 // 用户扫了张过期的码 A → B 被丢弃 → B 的 PSK 没了 → 那条通道作废）。
 //
-// 兼容：可选。不带时老主机那条路逐字不变。
+// 可选的含义是**中继不总能知道是哪一张**（`server.ts` 那条"帧本身坏了"的分支就没有
+// token 可点名）。不带时主机按"当前展示的那张"兜底。
 
 test('pairFail 带 token：键集多一个，且过得了 parseRelayFrame', () => {
   const bare = pairFail('invalid_or_expired')
-  assert.deepEqual(keysOf(bare).sort(), ['reason', 't'], '缺省即不发这个字段：老主机那条路必须逐字不变')
+  assert.deepEqual(keysOf(bare).sort(), ['reason', 't'], '缺省即不发这个字段（中继点不出名字时）')
   const tagged = pairFail('invalid_or_expired', '123456')
   assert.deepEqual(keysOf(tagged).sort(), ['pairingToken', 'reason', 't'])
   assert.equal(tagged.pairingToken, '123456')

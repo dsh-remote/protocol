@@ -70,10 +70,13 @@ test('cmd.new_session：只带 cmdId，命名与 id 都归主机', () => {
   assert.equal('title' in stripped, false)
 })
 
-test('cmd.new_session 的 workspace 是**可选**的目录，缺省仍合法（向后兼容的两端都不受影响）', () => {
-  // 2026-10-06 用户报"在 dsh 的工作区为未分组"：主机推断不出来时，手机可以明说落在哪。
-  // 可选是硬要求——老手机不发（走主机自己的推断）、老主机 strip 掉（行为与今天完全一样），
-  // 任何一个方向发版都不会把对方钉死。
+test('cmd.new_session 的 workspace 是**可选**的目录：手机不知道落在哪时不编一个', () => {
+  /**
+   * 2026-10-06 用户报"在 dsh 的工作区为未分组"：主机推断不出来时，手机可以明说落在哪。
+   *
+   * ⚠️ 可选的含义是**手机此刻不知道**（`sessions.js` 里那个 `workspace` 会是空串），
+   * 不是"为老对端留一条路"：不带就交给主机自己的推断。
+   */
   assert.ok(cmdNewSession.safeParse({ t: 'cmd.new_session', cmdId: 'c' }).success, '缺省必须仍合法')
   assert.ok(
     cmdNewSession.safeParse({ t: 'cmd.new_session', cmdId: 'c', workspace: '/Users/x/dsh-remote-control' }).success,
@@ -231,7 +234,7 @@ test('send_prompt 的 text 允许空串（"只带附件"这类将来态不该被
 test('send_prompt 的 images：可选、只认 jpeg、上限 4 张、data 非空', () => {
   const base = { t: 'cmd.send_prompt', cmdId: 'c', sessionId: 's', text: '看这张' }
   const one = { name: 'img-1.jpg', mediaType: 'image/jpeg', data: 'AAAA' }
-  // 不带 images：老版本手机照旧发得出去（这是增补，不是改语义）
+  // 不带 images = 这条消息没有图片附件（一个真实状态，不是为老对端留的路）
   assert.ok(cmdSendPrompt.safeParse(base).success)
   assert.ok(cmdSendPrompt.safeParse({ ...base, images: [one] }).success)
   assert.ok(cmdSendPrompt.safeParse({ ...base, images: Array.from({ length: 4 }, () => one) }).success)
@@ -313,16 +316,23 @@ test('事件：keep_awake_state 的四个必填字段一个都不能少（手机
   assert.equal('sessionId' in stripped, false, 'sessionId 会被剥掉：这个 payload 按契约不带会话归属（F11）')
 })
 
-test('ev.permission_resolved：收回卡片只认 requestId，by 可选但不许是别的词', () => {
+test('ev.permission_resolved：requestId / sessionId / by 三者缺一不可', () => {
   // 没有 requestId 就收不了任何一张卡——手机是靠它对上号的，所以这条必须红。
   assert.equal(parseEvPayload({ t: 'ev.permission_resolved' }), null)
-  assert.ok(
-    parseEvPayload({ t: 'ev.permission_resolved', requestId: 'r1' }),
-    '只给 requestId 就该成立（老宿主不知道 by）',
+  /**
+   * ⚠️ 2026-10-11 晚：原来这里断言"只给 requestId 就该成立（老宿主不知道 by）"。
+   * 生产端（`runtime.ts` 的 `voidStaleCard`）一直把三样都给全 ⇒ 形状只有一种：
+   * 缺 `sessionId` 就分不清收的是哪条会话的卡，缺 `by` 就是第二个形状。
+   */
+  assert.equal(parseEvPayload({ t: 'ev.permission_resolved', requestId: 'r1' }), null, '缺 sessionId/by 不许成立')
+  assert.equal(
+    parseEvPayload({ t: 'ev.permission_resolved', requestId: 'r1', by: 'desktop' }),
+    null,
+    '缺 sessionId 不许成立',
   )
   assert.ok(parseEvPayload({ t: 'ev.permission_resolved', requestId: 'r1', sessionId: 's', by: 'desktop' }))
   assert.equal(
-    parseEvPayload({ t: 'ev.permission_resolved', requestId: 'r1', by: 'approved' }),
+    parseEvPayload({ t: 'ev.permission_resolved', requestId: 'r1', sessionId: 's', by: 'approved' }),
     null,
     'by 是"谁收的场"，不是审批结果；放开取值会让手机那边要维护一张语义表',
   )
@@ -363,9 +373,9 @@ test('事件：permission/question 的 requestId 与 questions[].id 是回传映
   assert.equal(parseEvPayload({ t: 'ev.question_request', requestId: 'q', questions: [{}] }), null)
 })
 
-test('ev.question_request 的 expiresAt 是可选的：老宿主不发，手机就不许显示"undefined 秒"', () => {
+test('ev.question_request 的 expiresAt 是可选的：宿主不给期限，手机就不许显示"undefined 秒"', () => {
   const base = { t: 'ev.question_request', requestId: 'q', questions: [{ id: 'q1', question: '要哪个？' }] }
-  assert.ok(parseEvPayload(base), '不带 expiresAt 必须仍然成立（这一帧刚补这个字段，宿主两侧不会同时升级）')
+  assert.ok(parseEvPayload(base), '不带 expiresAt 必须成立：宿主没给期限时我们就省掉这个键，手机不起倒计时')
   assert.ok(parseEvPayload({ ...base, expiresAt: '2026-10-04T12:00:00.000Z' }))
   assert.equal(
     parseEvPayload({ ...base, expiresAt: 1_777_000_000_000 }),
@@ -374,12 +384,12 @@ test('ev.question_request 的 expiresAt 是可选的：老宿主不发，手机�
   )
 })
 
-test('ev.question_resolved：收回提问卡只认 requestId，by 可选但不许是别的词', () => {
+test('ev.question_resolved：requestId / sessionId / by 三者缺一不可', () => {
   assert.equal(parseEvPayload({ t: 'ev.question_resolved' }), null)
-  assert.ok(parseEvPayload({ t: 'ev.question_resolved', requestId: 'q1' }), '只给 requestId 就该成立')
+  assert.equal(parseEvPayload({ t: 'ev.question_resolved', requestId: 'q1' }), null, '缺 sessionId/by 不许成立')
   assert.ok(parseEvPayload({ t: 'ev.question_resolved', requestId: 'q1', sessionId: 's', by: 'desktop' }))
   assert.equal(
-    parseEvPayload({ t: 'ev.question_resolved', requestId: 'q1', by: 'answered' }),
+    parseEvPayload({ t: 'ev.question_resolved', requestId: 'q1', sessionId: 's', by: 'answered' }),
     null,
     'by 是"谁收的场"，不是答案；放开取值手机那边就要维护一张语义表',
   )
@@ -418,7 +428,7 @@ test('isoOrUndefined：数字转 ISO、ISO 串原样、垃圾值省略字段（F
 test('send_prompt 的 files：可选、保留扩展名、上限 4 个（图片之外的文件附件）', () => {
   const base = { t: 'cmd.send_prompt', cmdId: 'c1', sessionId: 's1', text: 'hi' }
   const one = { name: 'report.pdf', mediaType: 'pdf', data: 'SlBFR0JZVEVT' }
-  // 不带 files：老版本手机照旧发得出去（与 images 同一条理由：增补，不是改语义）
+  // 不带 files = 这条消息没有文件附件（与 images 同一条理由：那是一个真实状态）
   assert.ok(cmdSendPrompt.safeParse(base).success)
   assert.ok(cmdSendPrompt.safeParse({ ...base, files: [one] }).success)
   assert.ok(cmdSendPrompt.safeParse({ ...base, files: Array.from({ length: 4 }, () => one) }).success)

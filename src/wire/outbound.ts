@@ -16,7 +16,6 @@
  * 才从"文档要求"变成"跑一下就红"。
  */
 import { MAX_CIPHERTEXT_BYTES, PROTOCOL_VERSION, type EndpointFrame, type ErrorCode } from './frames.js'
-import type { CapabilityId } from './registry.js'
 import {
   type ChoiceOption,
   type EvKeepAwakeState,
@@ -77,7 +76,7 @@ export function paired(sessionId: string, hostId: string): RelayOutbound {
  *
  * 不带时主机侧只能作废"当前展示的那张"，而多码并存时那会作废错的那张
  * （详见 `frames.ts` 里 `pairFailFrame.pairingToken` 的注释）。
- * 缺省即不发这个字段，所以老主机那条路逐字不变。
+ * 缺省即不发这个字段：中继点不出名字时接线方按"当前展示的那张"兜底。
  */
 export function pairFail(
   reason: 'invalid_or_expired' | 'already_used' | 'host_offline' | 'bad_token',
@@ -96,7 +95,7 @@ export function peerJoinedForHost(sessionId: string, clientId: string, pairingTo
  * 参数表里刻意没有"告诉某个客户端别人走了"的形态——那种帧会让别的手机无辜丢配对（F5）。
  */
 export function peerLeft(sessionId: string, clientId: string, unpaired?: boolean): RelayOutbound {
-  // unpaired 缺省就是「没这个字段」而不是 false：老主机按「没带 = 断线」处理，
+  // unpaired 缺省就是「没这个字段」而不是 false：**没带 = 断线**，
   // 显式 false 反而会让它以为这是一次被判定过的断线。
   return { t: 'peer-left', sessionId, clientId, ...(unpaired ? { unpaired: true } : {}) }
 }
@@ -161,14 +160,13 @@ export function encBatchToClient(sessionId: string, items: Array<{ seq: number; 
  * 而插件这边一切正常。这是 F4 那条纪律（"参数表就是允许出现的字段集合"）的另一半，
  * 此前只对 payload 生效。
  *
- * `capabilities` 缺省即"不发这个字段"——老中继 strip 掉它，行为与今天完全一致。
+ * `protocol` 恒为 `PROTOCOL_VERSION`（除非判据显式注入另一个值来造"版本对不上"）。
  */
 export function helloForHost(args: {
   token?: string
   hostId?: string
   label?: string
   protocol?: number
-  capabilities?: readonly CapabilityId[]
 }): EndpointFrame {
   return {
     t: 'hello',
@@ -177,21 +175,18 @@ export function helloForHost(args: {
     ...(args.token === undefined ? {} : { token: args.token }),
     ...(args.hostId === undefined ? {} : { hostId: args.hostId }),
     ...(args.label === undefined ? {} : { label: args.label }),
-    ...(args.capabilities === undefined ? {} : { capabilities: [...args.capabilities] }),
   }
 }
 
 /**
  * 注册：client。
  *
- * `protocol` 缺省填本端版本（规范 §5.2 V1：缺省视为 1，这里把它**写出来**
- * 而不是省掉——老对端读不到它，新对端不必猜）。小程序那份手写实现仍然恒发 1。
+ * `protocol` **必填**（单版本制）：这里恒写出来，不做"缺省就省掉"那种事。
  */
 export function helloForClient(args: {
   clientId?: string
   clientMeta?: { platform?: string; label?: string }
   protocol?: number
-  capabilities?: readonly CapabilityId[]
 }): EndpointFrame {
   return {
     t: 'hello',
@@ -199,7 +194,6 @@ export function helloForClient(args: {
     ...(args.protocol === undefined ? { protocol: PROTOCOL_VERSION } : { protocol: args.protocol }),
     ...(args.clientId === undefined ? {} : { clientId: args.clientId }),
     ...(args.clientMeta === undefined ? {} : { clientMeta: args.clientMeta }),
-    ...(args.capabilities === undefined ? {} : { capabilities: [...args.capabilities] }),
   }
 }
 
@@ -351,8 +345,9 @@ export function permissionRequest(args: {
  */
 export function permissionResolved(args: {
   requestId: string
-  sessionId?: string
-  by?: 'desktop' | 'cancelled'
+  /** 必填：收场必须精确到会话（见 `evPermissionResolved` 的字段注）。 */
+  sessionId: string
+  by: 'desktop' | 'cancelled'
 }): EvPermissionResolved {
   return { t: PAYLOAD_TYPES.evPermissionResolved, ...args }
 }
@@ -375,8 +370,9 @@ export function questionRequest(args: {
  */
 export function questionResolved(args: {
   requestId: string
-  sessionId?: string
-  by?: 'desktop' | 'cancelled'
+  /** 必填，理由同 `permissionResolved`。 */
+  sessionId: string
+  by: 'desktop' | 'cancelled'
 }): EvQuestionResolved {
   return { t: PAYLOAD_TYPES.evQuestionResolved, ...args }
 }
@@ -427,27 +423,20 @@ export function keepAwakeState(args: {
 }
 
 /**
- * 主机能力/限额自述（§13.2）。**没有 `sessionId`**（F11）：能力面是主机级的。
+ * 主机限额自述（§13.2）。**没有 `sessionId`**（F11）：限额是主机级的。
  *
- * ## 为什么 `caps` 的宽严由调用方决定，而这里不兜底
- *
- * 少报一个能力位的代价是"明明支持却按不支持表现"（手机退回重拉一页，慢但不坏），
- * 多报一个的代价是"发过去手机上干等"（`cmd.session_history` 等 12 秒超时）。
- * 两种错**都不该被这个构造器悄悄修掉**：它不知道本插件到底接没接那条实现，
- * 替调用方猜只会把一次能编译期发现的漏报变成一次线上降级。
- * 所以参数表照收，取值纪律归 `transport/relay.ts` 的 `HOST_CAPABILITIES`——
- * 那里每条都对着一个实现点，且有判据钉着。
+ * ⚠️ 2026-10-11 晚：**能力位（`caps`）整条删掉**。它存在的唯一目的是让手机在
+ * "对端可能不支持某个载荷"时降级（典型是 `drc.payload.resume` ⇒ 退回重拉一页）。
+ * 三端同版本发版 ⇒ 没有"可能不支持"这回事，降级路径也就没有存在理由。
  */
 export function hostInfo(args: {
   host: EvHostInfo['host']
-  caps: readonly CapabilityId[]
   limits: EvHostInfo['limits']
   state: EvHostInfo['state']
 }): EvHostInfo {
   return {
     t: PAYLOAD_TYPES.evHostInfo,
     host: args.host,
-    caps: [...args.caps],
     limits: args.limits,
     state: args.state,
   }

@@ -10,48 +10,36 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  MIN_SUPPORTED_PROTOCOL,
-  PROTOCOL_VERSION,
-  describeVersion,
-  negotiateProtocol,
-  sharedCapabilities,
-} from '../../src/wire/negotiate.js'
+import { PROTOCOL_VERSION, describeVersion, negotiateProtocol } from '../../src/wire/negotiate.js'
 import { ERROR_CODES, describeErrorCode, isRetryableError, wantsRetryAfter } from '../../src/wire/errors.js'
 import { IdempotencyLedger, minimumIdempotencyWindow } from '../../src/wire/idempotency.js'
 import { IDEMPOTENCY_WINDOW_MS } from '../../src/wire/limits.js'
-import type { CapabilityId } from '../../src/wire/registry.js'
 
 // ── §5.2 版本协商 ────────────────────────────────────────────────────
 
-test('对端不报版本 = 1（老小程序就是不发这个字段），且必须标成 missing', () => {
-  const verdict = negotiateProtocol(undefined)
-  assert.equal(verdict.ok, true)
-  assert.ok(verdict.ok && verdict.version === 1 && verdict.missing)
-  assert.equal(negotiateProtocol(null).ok, true)
+test('版本**必填**：没报就拒（不再有"缺省视为 1"那条容忍）', () => {
+  for (const missing of [undefined, null]) {
+    const verdict = negotiateProtocol(missing)
+    assert.ok(!verdict.ok, '没报版本必须拒 —— 版本是必填字段')
+    assert.ok(!verdict.ok && verdict.reason === 'missing')
+    assert.match(verdict.message, /没有报协议版本/)
+  }
 })
 
-test('版本落在 [最低, 自身] 之内就继续；之外 MUST 说清楚是版本问题而不是形状问题', () => {
+test('版本不等于本端就拒，且必须说清是"版本问题"而不是形状问题', () => {
   assert.equal(negotiateProtocol(PROTOCOL_VERSION).ok, true)
-  assert.equal(negotiateProtocol(MIN_SUPPORTED_PROTOCOL).ok, true)
 
-  const tooNew = negotiateProtocol(PROTOCOL_VERSION + 1)
-  assert.ok(!tooNew.ok && tooNew.reason === 'too_new')
-  // 只钉**方向**（"本端比对方旧"），不钉整句措辞：这句话会被原样弹到用户手机上，
-  // 而"本端/对方"指的是**读它的那一端**——手机上"本端"就是用户的手机。
-  // 早先写的是 /比本端新/，而那句实际在说"请把本端升级"，于是手机用户读到的是
-  // "请升级我的手机"，而真正该升级的是中继那一侧。措辞一改判据就红，
-  // 说明它钉的是措辞不是意思——把它改成钉意思。
-  assert.match(tooNew.message, new RegExp(`本端协议版本 ${PROTOCOL_VERSION}.*比对方旧`))
+  for (const other of [PROTOCOL_VERSION + 1, PROTOCOL_VERSION + 2]) {
+    const verdict = negotiateProtocol(other)
+    assert.ok(!verdict.ok, `版本 ${other} 不该被接受`)
+    assert.ok(!verdict.ok && verdict.reason === 'mismatch')
+    // 只钉**意思**（两个版本号都出现在消息里），不钉措辞：这句话会被原样弹到
+    // 用户手机上，改一次措辞就红的话，判据钉的就不是意思了。
+    assert.match(verdict.message, new RegExp(String(PROTOCOL_VERSION)))
+    assert.match(verdict.message, new RegExp(String(other)))
+  }
 
-  // "太旧"只有在本端抬高 min 时才可能出现——本协议最低版本就是 1，
-  // 而合法版本号是正整数，所以默认配置下这一档是**不可达**的。
-  // 这不是漏测：它正是那条注入参数存在的理由。
-  const tooOld = negotiateProtocol(1, 3, 2)
-  assert.ok(!tooOld.ok && tooOld.reason === 'too_old')
-  assert.match(tooOld.message, /太旧/)
-  assert.match(tooOld.message, /2/, '消息里要带本端最低支持的版本')
-
+  // 形状非法与"版本不同"必须分开：两者的排错方向完全不同（一个是 bug，一个是升级）
   for (const bad of [0, -1, 1.5, '1', {} as never, NaN]) {
     const verdict = negotiateProtocol(bad)
     assert.ok(!verdict.ok, `${String(bad)} 不该被接受`)
@@ -59,25 +47,18 @@ test('版本落在 [最低, 自身] 之内就继续；之外 MUST 说清楚是�
   }
 })
 
-test('min/own 可注入：判据能跑一个"假想的老端点"而不必真的发一个旧包', () => {
-  const asOld = negotiateProtocol(2, 3, 2)
-  assert.equal(asOld.ok, true)
-  const rejectNewerSelf = negotiateProtocol(2, 1, 1)
-  assert.ok(!rejectNewerSelf.ok && rejectNewerSelf.reason === 'too_new')
-  // min 高于 1 时，缺省的 1 也必须被拒——否则"不报版本"就成了绕过检查的后门
-  const missingTooOld = negotiateProtocol(undefined, 3, 2)
-  assert.ok(!missingTooOld.ok && missingTooOld.reason === 'too_old')
-})
-
-test('能力取交集：双方对"我们之间有什么"必须是同一个答案', () => {
-  const mine: CapabilityId[] = ['drc.v1', 'drc.host.resync', 'drc.host.info']
-  assert.deepEqual(sharedCapabilities(mine, ['drc.v1', 'drc.host.info']), ['drc.v1', 'drc.host.info'])
-  assert.deepEqual(sharedCapabilities(mine, ['drc.v1', 'drc.nope']), ['drc.v1'])
-  assert.deepEqual(sharedCapabilities(mine, undefined), [])
+test('own 可注入：判据能造出"版本对不上"而不必真的发一个旧包', () => {
+  // 对端报 2、本端自认 3 ⇒ 拒
+  const asOlder = negotiateProtocol(2, 3)
+  assert.ok(!asOlder.ok && asOlder.reason === 'mismatch')
+  // 对端报 2、本端自认 2 ⇒ 放行
+  assert.equal(negotiateProtocol(2, 2).ok, true)
+  // "没报版本"在任何一个 own 下都是拒（不是"缺省 = 1 恰好撞上"）
+  assert.ok(!negotiateProtocol(undefined, 1).ok)
 })
 
 test('describeVersion 报的是本端常量，不是手写的数字', () => {
-  assert.deepEqual(describeVersion(), { protocol: PROTOCOL_VERSION, minProtocol: MIN_SUPPORTED_PROTOCOL })
+  assert.deepEqual(describeVersion(), { protocol: PROTOCOL_VERSION })
 })
 
 // ── §12.2 错误语义 ───────────────────────────────────────────────────

@@ -25,7 +25,6 @@
  */
 import { z } from 'zod'
 import { SLEEP_BACKENDS } from '../platform/sleep.js'
-import { capabilityList } from './frames.js'
 import { MAX_FILE_ATTACHMENTS, MAX_IMAGE_ATTACHMENTS } from './limits.js'
 
 /** 会话状态枚举。拼错一个字符，手机端徽标会退化成"空闲"——归档会话因此看着像正常会话。 */
@@ -125,16 +124,22 @@ export const evPermissionRequest = z.object({
  * 插件碰不到，只能接受；但**反过来不能靠手机自己超时**：桌面上有人点了之后，
  * 手机那张卡的倒计时还在走、按钮还能点，点下去是对着一个已经关闭的请求做写操作。
  * 所以输的那一侧必须被明确收回。
- *
- * 老版本的小程序收到不认识的 `t` 会**静默忽略**（分发是一串 `if (p.t === …)`），
- * 所以这一帧可以先于小程序那半上线，不会把谁钉死。
  */
 export const evPermissionResolved = z.object({
   t: z.literal('ev.permission_resolved'),
   requestId: nonEmpty,
-  sessionId: nonEmpty.optional(),
-  /** 谁收的场。手机只按"要不要收掉这张卡"读它，所以不做必填。 */
-  by: z.enum(['desktop', 'cancelled']).optional(),
+  /**
+   * ⚠️ **必填**（2026-10-11 晚）：句柄在生产端（`runtime.ts` 的 `voidStaleCard`）
+   * 从来都是给全的，而"可选"在这里只有一个后果 —— 一次串台的收场会把别的会话的卡收掉。
+   */
+  sessionId: nonEmpty,
+  /**
+   * 谁收的场。
+   *
+   * ⚠️ **必填**（2026-10-11 晚）：原来写的是"手机只按'要不要收掉这张卡'读它，所以不做必填"，
+   * 而生产端一直都给 —— 形状只有一种，那就不留"缺了也算合法"的第二条路。
+   */
+  by: z.enum(['desktop', 'cancelled']),
 })
 
 const questionItem = z.object({
@@ -174,14 +179,14 @@ export const evQuestionRequest = z.object({
  *
  * 与 `ev.permission_resolved` 同一条理由：提问现在也是**两端同时问、谁先答谁算**，
  * 输的那一侧必须被明确收回，不能靠手机自己那张没有倒计时的卡一直挂着。
- * 老版本的小程序收到不认识的 `t` 会静默忽略，所以这一帧可以先于小程序那半上线。
  */
 export const evQuestionResolved = z.object({
   t: z.literal('ev.question_resolved'),
   requestId: nonEmpty,
-  sessionId: nonEmpty.optional(),
-  /** 谁收的场。手机只按"要不要收掉这张卡"读它，所以不做必填。 */
-  by: z.enum(['desktop', 'cancelled']).optional(),
+  /** 必填，理由同 `evPermissionResolved.sessionId`（收场必须精确到会话）。 */
+  sessionId: nonEmpty,
+  /** 必填，理由同 `evPermissionResolved.by`。 */
+  by: z.enum(['desktop', 'cancelled']),
 })
 
 export const evRunState = z.object({
@@ -278,8 +283,8 @@ export const evKeepAwakeState = z.object({
  * 把字段设成 optional 只会给"漏填一个、手机退回猜"留一条路，而那正是本载荷要消灭的东西。
  *
  * ⚠️ 反过来的那一半同样重要：**接收方不许用"字段缺失"推断"不支持"**（L3）。
- * 老主机整帧都不发 `ev.host_info`，手机在收到它之前的默认状态是
- * **"能力面未知 = 一律按不支持处理"**，而不是"按支持处理、等它到来"。
+ * 手机在收到这一帧之前的状态是"**不知道**"——它与"报了 0"是两件事
+ * （前者放行、后者置灰，见 `client.js` 的 `imageAttachmentLimit`）。
  */
 export const hostLimits = z.object({
   /** 单条消息能带几张图（来源 `MAX_IMAGE_ATTACHMENTS`）。 */
@@ -293,35 +298,25 @@ export const hostLimits = z.object({
 })
 
 /**
- * `ev.host_info` —— 主机显式上报自己的能力、限额与自身信息（规范 §13.2，GAP-5）。
+ * `ev.host_info` —— 主机显式上报自己的限额与自身信息（规范 §13.2，GAP-5）。
  *
- * ## 它是 `drc.payload.resume` 那条路的**唯一**载体
+ * ⚠️ 2026-10-11 晚：**`caps`（能力位）整条删掉**。它原来的唯一职责是让手机判断
+ * "对端会不会回 `latestSeq`"（`drc.payload.resume`），以便在不支持时退回重拉一页。
+ * 三端同版本发版 ⇒ 不存在"对端可能不支持"，那条降级路径连同能力注册表一起消失。
+ * 手机现在**总是**按差量续传走（见 `client.js` 的 `resumeHistory`）。
  *
- * §10.7 的 S6 要求：client 在对端没有 `drc.payload.resume` 能力位时
- * **MUST NOT** 发 `cmd.session_history.since`，必须退回"重拉一页"。
- * 那么"对端有没有这一位"从哪来？只能是这里。
+ * ## 为什么这些数只能由主机在**加密通道**里说
  *
- * 为什么不用中继的 `hello-ok.capabilities`：中继是**结构性零知识**的，
- * 它连载荷都看不见（`enc` 之外无明文）。能力位确实也不是秘密（`hello` 是明文的），
- * 但让中继来回答"主机支持什么"会把一个内容面的判断塞进一个**只负责转发**的角色，
- * 而它一旦答错（旧中继 strip 掉这个字段、或缓存了一份过期的），
- * 手机就会拿一个陈旧的能力面去决定发不发 `since`——表现是**静默漏消息**。
- * 由主机自己在加密通道里说，这句话的时效性与真实性都由唯一知情者负责。
- *
- * ## 为什么 `caps` 是字符串数组而不是位图
- *
- * 加性演进（§5.2 V1）：新能力位加进数组即可，老解析器忽略不认识的 id。
- * 位图要求两端对"第几位是什么"永远一致，任何一次重排都是破坏性变更。
- * L1 的"`caps` MUST 取自注册表"是对**生产端**的义务（见 `registry.ts` 的
- * `CAPABILITY_IDS`），不是校验器的约束——校验器不能拒不认识的 id，
- * 否则一台更新过的主机会被整帧丢弃，而那正是加性演进要避免的。
+ * 限额（图片/文件张数、字节上限）是内容面的判断，而中继是**结构性零知识**的：
+ * 让中继来回答"主机能收多少"会把一个内容面的判断塞进一个只负责转发的角色，
+ * 且它手上的那份随时可能过期。由主机自己说，时效性与真实性都由唯一知情者负责。
  */
 export const evHostInfo = z.object({
   t: z.literal('ev.host_info'),
   /**
    * 主机自述。这里**没有** `sessionId`，将来也不许加（与 `ev.session_changed` /
-   * `ev.keep_awake_state` 同一条 F11）：能力面是主机级的，按会话分装会把
-   * "这台主机支持什么"变成"这条通道支持什么"，而手机只想知道前者。
+   * `ev.keep_awake_state` 同一条 F11）：限额是主机级的，按会话分装会把
+   * "这台主机能收多少"变成"这条通道能收多少"，而手机只想知道前者。
    */
   host: z.object({
     platform: nonEmpty,
@@ -332,8 +327,6 @@ export const evHostInfo = z.object({
     carrier: z.string().optional(),
     dshVersion: z.string().optional(),
   }),
-  /** §17.4 的能力 id 列表。生产端取自 `CAPABILITY_IDS`（L1）。 */
-  caps: capabilityList,
   limits: hostLimits,
   state: z.object({
     /** 防休眠走哪条系统后端；`unsupported` 是如实上报，不是错误。 */
@@ -373,7 +366,8 @@ export const evModel = z.object({
    * 模型是**按会话**的，不带 sessionId 就无法过滤——任何一条别的会话的
    * 模型帧都会覆盖本会话的显示。
    *
-   * 必填：老主机不带这个字段时 mp 端宁可忽略这一帧，也不显示错的。
+   * **必填**（2026-10-11 晚）：不带会话归属的模型帧在 mp 端一律丢弃 ——
+   * 宁可这一帧不算数，也不能把别的会话的模型名显示到本会话顶栏。
    */
   sessionId: nonEmpty,
   provider: nonEmpty.optional(),
@@ -405,7 +399,8 @@ export const evResult = z.object({
  * 深不递归：这里只允许三种**叶子**载荷，`ev.session_history` 自身不在其中。
  * 第三种是 `evTodo`（2026-10-05 补）：待办是**全量快照**，一页里最后一条就是那一页
  * 截止时的清单；回放它让"进一条跑过的会话也看得见待办"成立，不用等下一次
- * `todo/write`。老手机回放到不认识的 `t` 会静默跳过（分发是 `if (p.t === …)` 串）。
+ * `todo/write`。这一条只放**当前代**认识的载荷：回放里出现别的 `t` 会被整条拒掉
+ * （`historyItem` 是判别联合，不是"不认识就跳过"）。
  */
 const historyItem = z.discriminatedUnion('t', [evMessageDelta, evToolEvent, evTodo])
 /** 历史里的一条。 */
@@ -439,8 +434,9 @@ export const evSessionHistory = z.object({
    * 而空页没有任何 seq 可取——于是手机要么记一个陈旧的值（下次重复收到已看过的条目），
    * 要么记 0（下次把整段历史重拉一遍）。这个字段让"你现在到哪了"始终有答案。
    *
-   * ⚠️ 它**不是**能力位那样的"可选支持"：老主机不发这个字段时，手机看到 `undefined`
-   * 就退回 v2 的重拉一页（能力位 `drc.payload.resume` 决定走哪条路）。
+   * ⚠️ 可选的含义是"**这一页报不出游标**"（内核这一代给不出来），不是"对端可能不支持"：
+   * 手机拿到 `undefined` 就按"已经到顶"收工（`client.js` 的 `next === null` 那一支），
+   * 不记一个错的游标。（原来这里还提能力位 `drc.payload.resume` —— 那套机制已删除。）
    */
   latestSeq: z.number().int().nonnegative().optional(),
 })
@@ -577,8 +573,7 @@ export const cmdSendPrompt = z.object({
   sessionId: nonEmpty,
   text: z.string(),
   /**
-   * 随消息的图片附件。**可选**：老版本手机不带这个字段，老主机看到也不认
-   * （zod 默认 strip 未知键，而 text 照旧）——所以这是向后兼容的增补，不升协议版本。
+   * 随消息的图片附件。**可选**：不带 = 这条消息没有图片（一个真实状态）。
    * 上限取 `limits.ts` 的 `MAX_IMAGE_ATTACHMENTS`（4）：再多对"看清楚这张图"没有帮助，
    * 只是把帧撑爆。**同一个数**还在小程序（`MAX_ATTACH`）与主机侧（`uploads.ts`）各写一遍，
    * 靠 `e2e/wire-surface.test.mjs` 逐处比对钉住——改动必须三处同时发生。
@@ -657,10 +652,9 @@ export const cmdListSessions = z.object({
  *
  * ## 为什么是"可选"而不是必填
  *
- * 沿用 `images` / `files` 那条已定的规矩（见 `cmdSendPrompt`）：zod 默认 strip 未知键，
- * 所以**新手机 + 老主机**（老主机不认这个字段，等于沿用它原来的推断）与
- * **老手机 + 新主机**（不发这个字段，主机走它自己的兜底）都照旧工作。
- * 一个可选字段不值得升协议版本——升了会让"两端版本必须配对"从建议变成硬要求。
+ * 因为它表达的是**手机此刻不知道**：`sessions.js` 里那个 `workspace` 可能是空串
+ * （用户从没选过工作区、会话列表里也没有可继承的那一条）。这时**不带**这个键，
+ * 主机走它自己的推断（`workspaceRegistry.list()` 那条兜底），而不是让手机编一个路径。
  *
  * 取值是**目录绝对路径**（`/Users/x/dsh-remote-control`），与 `SessionSummary.workspace`
  * 同一个字符串——手机那边本来就是从会话列表里原样取出来的，不做换算，也就不存在两侧对不上的可能。
@@ -737,8 +731,8 @@ export const cmdSessionHistory = z
  * 按原请求帧重发（同一 `requestId`，手机按卡覆盖），没有就只回 `ev.result{ok:true}`。
  *
  * `sessionId` 可选：带了只重发那条会话的，没有全重发（手机按 sessionId 过滤显示，
- * 多发不翻倍）。老主机不认这条命令（schema 直接丢弃），手机 fire-and-forget，
- * 收不到就当没有——不做 waiter、不弹错。
+ * 多发不翻倍）。这是**手机主动拉**的一条命令：fire-and-forget，收不到就当没有 ——
+ * 不做 waiter、不弹错（重连后的正路是主机在 `onClientRejoined` 里主动 `replayPending`）。
  */
 export const cmdGetPending = z.object({
   t: z.literal('cmd.get_pending'),

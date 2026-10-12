@@ -18,7 +18,6 @@ import type { z } from 'zod'
 import { cmdSessionHistory, evSessionHistory } from '../../src/wire/payloads.js'
 import { errorCodes } from '../../src/wire/frames.js'
 import { describeErrorCode, isRetryableError } from '../../src/wire/errors.js'
-import { CAPABILITY_IDS, CAPABILITY_DESCRIPTIONS, hasCapability } from '../../src/wire/registry.js'
 import { sessionHistory } from '../../src/wire/outbound.js'
 
 /**
@@ -58,7 +57,7 @@ test('② 窗口外要明确拒绝，且该码不可重试', () => {
   )
 })
 
-test('③ latestSeq 是 since 的取值来源，且允许缺省（老主机不发）', () => {
+test('③ latestSeq 是 since 的取值来源；报不出来时缺省合法（手机当"补齐了"）', () => {
   const base = { t: 'ev.session_history' as const, sessionId: 'ses_abc', cmdId: 'c1' }
   assert.ok(evSessionHistory.safeParse({ ...base, items: [item(1, 'a')], latestSeq: 1 }).success)
   // 空页也必须能带 latestSeq —— 否则"这期间没有新条目"时手机没有可记的值
@@ -66,28 +65,12 @@ test('③ latestSeq 是 since 的取值来源，且允许缺省（老主机不�
     evSessionHistory.safeParse({ ...base, items: [], latestSeq: 7 }).success,
     '空页也要能报 latestSeq：否则手机要么记陈旧值（重复收）要么记 0（整段重拉）',
   )
-  // 老主机不发这个字段 ⇒ 缺省必须合法（这是能力位降级路径的前提）
+  // ⚠️ 「报不出来」是一个**真实状态**，不是兼容：内核这一代给不出游标时，
+  // 宿主只能不报。手机把它当"这一页已经到顶"（`client.js` 的 `next === null` 那一支），
+  // 而不是记一个错的游标。
   assert.ok(
     evSessionHistory.safeParse({ ...base, items: [item(1, 'a')] }).success,
-    'latestSeq 可缺省：老主机走 v2 路径',
-  )
-})
-
-test('④ 能力位 drc.payload.resume 已登记（缺它时手机要能退回重拉一页）', () => {
-  assert.ok(
-    hasCapability(CAPABILITY_IDS, 'drc.payload.resume'),
-    // ⚠️ 刻意用 `hasCapability` 而不是裸 `includes`：它是生产代码判断"能力位在不在"
-    // 的那条路（`registry.ts:256`）。判据走同一条路，才能保证"判据说支持"与
-    // "实现说支持"是同一件事 —— 两处各判一次，迟早漂移。
-    '能力位必须真的登记：手机靠它决定走补差量还是退回重拉一页',
-  )
-  assert.ok(CAPABILITY_DESCRIPTIONS['drc.payload.resume'], '每个能力位都要有人话说明：describeCatalog 与排错日志靠它')
-  // 反向：老主机**没有**这一位时，手机必须能判出来（这就是它存在的理由）
-  const oldHost = CAPABILITY_IDS.filter((id: (typeof CAPABILITY_IDS)[number]) => id !== 'drc.payload.resume')
-  assert.equal(
-    hasCapability(oldHost, 'drc.payload.resume'),
-    false,
-    '拿掉它就代表老主机 ⇒ 手机据此走重拉一页（降级路径必须可判定）',
+    'latestSeq 可缺省：含义是"这一页没有游标"，手机据此收工',
   )
 })
 
