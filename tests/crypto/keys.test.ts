@@ -1,7 +1,7 @@
 /**
  * keys 的不变量测试。
  *
- * 这里**不**验证"字节与小程序一致"——那是 `e2e/protocol.test.mjs` 拿真实 `mp/core/codec.js`
+ * 这里**不**验证"字节与小程序一致"——那是 `e2e/protocol.test.mjs` 拿真实 `packages/client/core/codec.js`
  * 做 oracle 的逐字节对拍要干的事。本文件只保证实现自身不会因为"看着等价的改写"而漂移：
  * 分隔符位置、截断方向、parts 顺序、字节序，这四处各有一条测试专门钉着。
  */

@@ -2,11 +2,16 @@
 
 ## 3.1.5
 
-> 四个包一起 bump 到 `3.1.5`。**本版代码无变化** —— 这一版是为了把小程序（`@dsh-remote/client`）
-> 的审核整改版发出去，而四个包的版本号按口径必须同一个号（`scripts/next-version.mjs --check`）。
-> 具体整改见 `packages/client/CHANGELOG.md` 的 3.1.5 一节。
->
-> ⇒ 若本轮只发小程序：**不需要**给本包打 tag / 发 npm（npm 上仍是 3.1.4）。
+> 四个包一起 bump 到 `3.1.5`。**主体是小程序的审核整改**（见 `packages/client/CHANGELOG.md`）。
+> 本包**代码无变化**；review 只修了 README 里一条**已经失效的规范**。
+
+### 深度 review 补丁（2026-10-12）
+
+- ⚠️ `README.md` 的红线里还写着「增量只许走**能力位**，不许改既有形状」——
+  而能力位机制（`hello.capabilities` / `ev.host_info.caps` 与三端的降级分支）
+  **已整条删除**（2026-10-11 单版本制裁决）。现在写的是真实规则：改既有形状就是
+  破坏性变更，必须同时升 `PROTOCOL_VERSION` 并让三端一起升。
+- 注释里的证据指针过期的（`@dsh-rc/protocol`、`mp/core/*.js`）一律指到真实位置。
 
 ## 3.1.4
 

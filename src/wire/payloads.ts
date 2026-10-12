@@ -784,7 +784,7 @@ export const cmdArchiveSession = z.object({
 })
 
 /**
- * 手机发来的命令，共 10 种——就是 `mp/core/client.js` 的便捷方法能产出的全部。
+ * 手机发来的命令，共 10 种——就是 `packages/client/core/client.js` 的便捷方法能产出的全部。
  *
  * 旧实现还有一个 `cmd.subscribe`：它的 handler 只回一个 `ev.result{ok:true}`，
  * `sessionIds`/`includeContent` 没有任何过滤效果，而小程序从不发它。
