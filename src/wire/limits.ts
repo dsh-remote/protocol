@@ -79,7 +79,8 @@ export const MAX_TEXT_CHARS = 20_000
  *
  * MUST ≥ client 的最大命令重试间隔，否则"重发的那条"落在窗口外，
  * 于是它会被执行第二次——去重窗口比超时窗口短，等于没有去重。
- * client 侧现状是 `COMMAND_TIMEOUT_MS = 12_000`，这里留了三倍余量。
+ * client 侧现状是 `COMMAND_TIMEOUT_MS = 12_000`，这里留了约 **25 倍**余量
+ * （12 s → 5 min；⚠️ 原来这里写的是"三倍"，那是算错的，而注释里的数字自带权威感）。
  */
 export const IDEMPOTENCY_WINDOW_MS = 5 * 60 * 1000
 
