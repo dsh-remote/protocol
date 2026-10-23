@@ -1,0 +1,127 @@
+{
+  "name": "@dsh-remote/protocol",
+  "version": "0.5.0",
+  "description": "DSH Remote Control 的线协议层：密封记录加密、KDF、配对 URI、控制帧与载荷目录、防休眠命令构造器。纯函数，无 I/O。",
+  "type": "module",
+  "license": "MIT",
+  "author": "dsh-remote",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsh-remote/protocol.git"
+  },
+  "homepage": "https://github.com/dsh-remote/protocol#readme",
+  "bugs": {
+    "url": "https://github.com/dsh-remote/protocol/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "deepseek",
+    "remote-control",
+    "protocol",
+    "websocket",
+    "wechat",
+    "miniprogram",
+    "e2e-encryption",
+    "tweetnacl"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./frames": {
+      "types": "./dist/src/wire/frames.d.ts",
+      "default": "./dist/src/wire/frames.js"
+    },
+    "./limits": {
+      "types": "./dist/src/wire/limits.d.ts",
+      "default": "./dist/src/wire/limits.js"
+    },
+    "./registry": {
+      "types": "./dist/src/wire/registry.d.ts",
+      "default": "./dist/src/wire/registry.js"
+    },
+    "./classify": {
+      "types": "./dist/src/wire/classify.d.ts",
+      "default": "./dist/src/wire/classify.js"
+    },
+    "./errors": {
+      "types": "./dist/src/wire/errors.d.ts",
+      "default": "./dist/src/wire/errors.js"
+    },
+    "./negotiate": {
+      "types": "./dist/src/wire/negotiate.d.ts",
+      "default": "./dist/src/wire/negotiate.js"
+    },
+    "./idempotency": {
+      "types": "./dist/src/wire/idempotency.d.ts",
+      "default": "./dist/src/wire/idempotency.js"
+    },
+    "./payloads": {
+      "types": "./dist/src/wire/payloads.d.ts",
+      "default": "./dist/src/wire/payloads.js"
+    },
+    "./outbound": {
+      "types": "./dist/src/wire/outbound.d.ts",
+      "default": "./dist/src/wire/outbound.js"
+    },
+    "./report-version": {
+      "types": "./dist/src/wire/report-version.d.ts",
+      "default": "./dist/src/wire/report-version.js"
+    },
+    "./keys": {
+      "types": "./dist/src/crypto/keys.d.ts",
+      "default": "./dist/src/crypto/keys.js"
+    },
+    "./record": {
+      "types": "./dist/src/crypto/record.d.ts",
+      "default": "./dist/src/crypto/record.js"
+    },
+    "./pairing": {
+      "types": "./dist/src/identity/pairing.d.ts",
+      "default": "./dist/src/identity/pairing.js"
+    },
+    "./ids": {
+      "types": "./dist/src/identity/ids.d.ts",
+      "default": "./dist/src/identity/ids.js"
+    },
+    "./sleep": {
+      "types": "./dist/src/platform/sleep.d.ts",
+      "default": "./dist/src/platform/sleep.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist/src"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm build && node --test \"dist/tests/**/*.test.js\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "prettier": "^3.3.3",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@11.7.0"
+}
