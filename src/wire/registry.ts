@@ -96,7 +96,7 @@ export const RELAY_FRAME_TYPES: readonly RelayFrame['t'][] = RELAY_FRAME_NAMES
 /**
  * 协议里存在过的全部控制帧名（两个方向的并集）。
  *
- * **去重**：enc / enc-batch 两个方向都有，直接相加会得到 18 个条目、16 个不同名字，
+ * **去重**：enc / enc-batch / pair-grant 三个名字两个方向都有，直接相加会得到 23 个条目、20 个不同名字，
  * 而"注册表里有几条帧"这种问法本身就该按不同名字算——否则文档里的数字会骗人
  * （本项目已经吃过一次这种亏：README 里的"项数"漂了半年，见伞仓 HANDOFF §0.10.6）。
  */

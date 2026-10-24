@@ -76,15 +76,17 @@ test('每条出站控制帧都能被对侧的 schema 解出来（自证往返）
 })
 
 test('F4：hello-ok 对客户端必带 clientId，对主机必带 hostId，另一个都不带', () => {
-  // **B 口径翻转**（裁决出处 PLAN-v5 M-C，2026-10-23）：hello-ok 从此必带
-  // `capabilities`（中继声明面；缺省 = RELAY_CAPABILITIES 全量）。F4 的本意
-  // （clientId/hostId 二选一、不许串）原样保留，只是键集多了这一件。
-  assert.deepEqual(keysOf(helloOkForClient('i')), ['capabilities', 'clientId', 'role', 't'])
-  assert.deepEqual(keysOf(helloOkForHost('h')), ['capabilities', 'hostId', 'role', 't'])
+  // **B 口径翻转**（裁决出处 PLAN-v5 M-C，2026-10-23 + 2026-10-24 构造器补 protocol）：
+  // hello-ok 从此必带 `capabilities`（中继声明面；缺省 = RELAY_CAPABILITIES 全量）
+  // 与 `protocol`（schema 必填，缺省补 PROTOCOL_VERSION——不许造出对侧静默丢掉的帧）。
+  // F4 的本意（clientId/hostId 二选一、不许串）原样保留，只是键集多了这两件。
+  assert.deepEqual(keysOf(helloOkForClient('i')), ['capabilities', 'clientId', 'protocol', 'role', 't'])
+  assert.deepEqual(keysOf(helloOkForHost('h')), ['capabilities', 'hostId', 'protocol', 'role', 't'])
   // summary 是可选下发面：真带了才多这把键（M2 的回放面，随 M-C 上车）。
   assert.deepEqual(keysOf(helloOkForClient('i', undefined, { summary: { at: 1, running: false } })), [
     'capabilities',
     'clientId',
+    'protocol',
     'role',
     'summary',
     't',
@@ -445,4 +447,37 @@ test('软件版本默认**不带**（零知识：不开开关的部署发出去�
     softwareVersion: '3.2.9',
   }) as Record<string, unknown>
   assert.equal(withVersionClient.softwareVersion, '3.2.9', 'client 侧同理')
+})
+
+test('hello-ok 构造器：protocol 缺省也要写出来（不许造出对侧静默丢掉的帧）', () => {
+  /**
+   * 2026-10-24 审计：`hello-ok` 的 schema 里 `protocol` 是**必填**，而这两个构造器
+   * 此前在省略时**不带该键** —— 按它们自己的纪律（"造出对侧会静默丢掉的帧比抛错难查"）
+   * 这是构造器缺口。现实调用点（relay server.ts）总传 `frame.protocol`，所以是潜伏面。
+   * 修法与 `helloForHost` 同款：缺省补 `PROTOCOL_VERSION`。
+   */
+  const client = helloOkForClient('c_2')
+  const host = helloOkForHost('h_2')
+  assert.equal(client.protocol, PROTOCOL_VERSION, 'client 侧缺省要补 PROTOCOL_VERSION')
+  assert.equal(host.protocol, PROTOCOL_VERSION, 'host 侧缺省要补 PROTOCOL_VERSION')
+  // 显式传入时仍然照传（不许被缺省值盖掉）
+  assert.equal(helloOkForClient('c_3', 7).protocol, 7)
+  // 缺省产物必须过对端 schema（协议必填字段的完整闭环）
+  assert.ok(parseRelayFrame(client), `缺省 hello-ok 过不了 schema：${JSON.stringify(client)}`)
+  assert.ok(parseRelayFrame(host), `缺省 hello-ok 过不了 schema：${JSON.stringify(host)}`)
+})
+
+test('pairClaim：clientPub 进参数表（构造得出今天每个客户端都发的帧）', () => {
+  /**
+   * 2026-10-24 审计：schema 里 `clientPub` 可选、注释说"3.2 起所有客户端都带"，
+   * 而构造器参数表里没有它 —— 公共 API 构造不出那张帧，只能手写字面量（丢 schema 约束）。
+   */
+  const pub = Buffer.alloc(32, 7).toString('base64') // 真 32 字节公钥的 base64（schema 是 publicKeyB64）
+  const withKey = pairClaim('123456', pub)
+  assert.ok(withKey.t === 'pair-begin-client', '帧名必须是 pair-begin-client')
+  assert.equal(withKey.clientPub, pub, '带 key 时必须进帧')
+  const bare = pairClaim('123456')
+  assert.equal('clientPub' in bare, false, '不带时缺省不带键（与 schema 可选同款）')
+  assert.ok(parseEndpointFrame(withKey), '带 clientPub 的产物要过 schema')
+  assert.ok(parseEndpointFrame(bare), '不带的产物也要过 schema')
 })

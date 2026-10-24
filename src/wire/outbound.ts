@@ -73,7 +73,9 @@ export function helloOkForClient(clientId: string, protocol?: number, extras: He
     t: 'hello-ok',
     role: 'client',
     clientId,
-    ...(protocol === undefined ? {} : { protocol }),
+    // 缺省补 PROTOCOL_VERSION（与 `helloForHost` 同款）：`hello-ok` 的 schema 里
+    // `protocol` 是**必填**，省略这个键会造出一张对侧静默丢掉的帧（2026-10-24 审计）。
+    ...(protocol === undefined ? { protocol: PROTOCOL_VERSION } : { protocol }),
     capabilities: [...(extras.capabilities ?? RELAY_CAPABILITIES)],
     ...(extras.summary === undefined ? {} : { summary: extras.summary }),
   }
@@ -84,7 +86,8 @@ export function helloOkForHost(hostId: string, protocol?: number, extras: HelloO
     t: 'hello-ok',
     role: 'host',
     hostId,
-    ...(protocol === undefined ? {} : { protocol }),
+    // 同上：缺省补 PROTOCOL_VERSION，构造器不许造出 schema 会拒的帧。
+    ...(protocol === undefined ? { protocol: PROTOCOL_VERSION } : { protocol }),
     capabilities: [...(extras.capabilities ?? RELAY_CAPABILITIES)],
     ...(extras.summary === undefined ? {} : { summary: extras.summary }),
   }
@@ -250,9 +253,9 @@ export function helloForHost(args: {
   label?: string
   protocol?: number
   /**
-   * 本端软件版本（2026-10-22）：**默认不带**（见 `helloFrame.softwareVersion` 的注释）。
-   *
-   * ⚠️ **缺省就不带这个键**（不是带空串）⇒ 不开开关的部署发出去的帧**逐字节相同**。
+   * 本端软件版本（2026-10-22）：**缺省就不带这个键**（不是带空串）。
+   * 现状（2026-10-23 裁决后）：插件**无条件**上报、小程序上传时默认开（`DRC_REPORT_VERSION`
+   * 只关不猜）、中继无条件记 —— 注释里的"默认不带"已是历史。
    */
   softwareVersion?: string
 }): EndpointFrame {
@@ -278,9 +281,9 @@ export function helloForClient(args: {
   clientMeta?: { platform?: string; label?: string }
   protocol?: number
   /**
-   * 本端软件版本（2026-10-22）：**默认不带**（见 `helloFrame.softwareVersion` 的注释）。
-   *
-   * ⚠️ **缺省就不带这个键**（不是带空串）⇒ 不开开关的部署发出去的帧**逐字节相同**。
+   * 本端软件版本（2026-10-22）：**缺省就不带这个键**（不是带空串）。
+   * 现状（2026-10-23 裁决后）：插件**无条件**上报、小程序上传时默认开（`DRC_REPORT_VERSION`
+   * 只关不猜）、中继无条件记 —— 注释里的"默认不带"已是历史。
    */
   softwareVersion?: string
 }): EndpointFrame {
@@ -299,9 +302,16 @@ export function pairBegin(pairingToken: string): EndpointFrame {
   return { t: 'pair-begin', pairingToken }
 }
 
-/** client 认领配对码。小程序从不提交 PSK。 */
-export function pairClaim(pairingToken: string): EndpointFrame {
-  return { t: 'pair-begin-client', pairingToken }
+/**
+ * client 认领配对码。小程序从不提交 PSK。
+ *
+ * `clientPub`（2026-10-21 加，schema 可选）：小程序码路线里手机拿不到 psk，
+ * 认领时带一枚一次性 X25519 公钥，主机比对完 6 位确认码后用它把 psk 送回来。
+ * 3.2 起所有客户端都带它；构造器留可选与 schema 同款（帧形状本身不依赖它）。
+ * 参数表补上它是 2026-10-24 审计：此前公共 API 构造不出"今天每个客户端都发的帧"。
+ */
+export function pairClaim(pairingToken: string, clientPub?: string): EndpointFrame {
+  return { t: 'pair-begin-client', pairingToken, ...(clientPub === undefined ? {} : { clientPub }) }
 }
 
 /**
