@@ -305,6 +305,93 @@ export const resyncFrame = z.object({
 // 刻意不提供"逐条确认会话还在"的帧：resync 一次就够，
 // 多一个入口只会多一类"两条路说法不一致"的故障。
 
+// ── 反馈面（2026-10-26）─────────────────────────────────────────────
+//
+// ## 这是一块**明文**平面，而且是**唯一**一块中继读得懂的自由文本
+//
+// 零知识边界此前只有两个例外：`summary`（状态摘要，纯状态类字段）与管理面
+// （`/healthz` 等只出计数与版本）。本节是**第三个**，而且性质不同：
+//
+//   · `summary` 是**主机**自动上报的**状态**（时刻/布尔/整数），白名单 strict
+//     把关，**一个自由文本都不许有**（见上面 statusDigest 那段）；
+//   · 反馈是**用户亲手敲的**意见，**它的全部价值就在于那句话本身**。
+//     把它加密就没有人读得到——而读它的人正是要改这个产品的人。
+//
+// ⇒ 所以这不是"破了一次零知识"，而是**开了一扇有名字的门**：
+//   ① 它只承载用户**主动提交**的那一段文字，不与任何会话内容混流；
+//   ② 它**不经过 enc**，中继存的是原文（明文），落盘文件与 state.json 分开；
+//   ③ 它有**能力位**（`feedback.v1`）——中继不声明，小程序就不开这个入口；
+//   ④ 它有**限频**与**体量上限**（见 relay/src/feedback.ts），因为客户端**无鉴权**
+//     （clientId 是自报的，见 server.ts 的 handleHello 客户端分支）——
+//     没有限频的话这是一台免费的留言板。
+//
+// ## 形状纪律
+//
+// 帧对象本身**不 strict**（与 ping/summary 同款：zod 默认剥掉未知键）；
+// 但**条目**（`feedbackItem`）strict —— 它是要落盘的形状，落盘的文件不是信任边界
+// （可能被人手改过），坏形状的整条丢掉而不是剥键放行（同 statusDigest 的理由）。
+
+/**
+ * 反馈的**响应承诺**：24 小时（2026-10-26 产品裁决）。
+ *
+ * 这个数写在协议层是因为**两处必须一致**：中继算「逾期未回」用它，
+ * 小程序显示「承诺 24 小时内回复」也用它。两处各写一个 24 的话，
+ * 有一天有一处被改成 48，用户看到的承诺就和中继的口径对不上 ——
+ * 而"承诺"这件事一旦对不上，整条通道就失去意义。
+ */
+export const FEEDBACK_SLA_HOURS = 24
+
+/** 反馈正文的上限。够写三段话，不够写一篇作文。 */
+export const FEEDBACK_TEXT_MAX = 2000
+/** 联系方式（可选）的上限。留空也完全合法 —— 匿名反馈我们一样回，只是回不到。 */
+export const FEEDBACK_CONTACT_MAX = 120
+
+export const feedbackText = z.string().min(1).max(FEEDBACK_TEXT_MAX)
+export const feedbackContact = z.string().min(1).max(FEEDBACK_CONTACT_MAX)
+
+/**
+ * 一条反馈（**明文**）。落盘的形状，也是中继 → 小程序 回包里的形状。
+ *
+ * `status` 只有两态：`open`（还没回）与 `replied`（回了）。
+ * 没有第三态 ——「已回」和「没回」是两种事实，别的都是这两个的组合。
+ */
+export const feedbackItem = z
+  .object({
+    /** 提交时由小程序生成的 id（客户端自己的，不含时间戳以外的信息）。 */
+    id: nonEmpty,
+    /** 用户原话。**明文**。 */
+    text: feedbackText,
+    /** 联系方式（可选）。用户不填就没有这个键。 */
+    contact: feedbackContact.optional(),
+    /** 提交时刻（epoch ms，中继落库时刻为准 —— 客户端的钟不可信）。 */
+    at: z.number().int().nonnegative(),
+    status: z.enum(['open', 'replied']),
+    /** 我们的回复（可选；`status==='replied'` 时必有）。 */
+    reply: z.string().min(1).max(FEEDBACK_TEXT_MAX).optional(),
+    /** 回复时刻（epoch ms）。 */
+    repliedAt: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+export type FeedbackItem = z.infer<typeof feedbackItem>
+
+/** 小程序 → 中继：提交一条反馈。 */
+export const feedbackFrame = z.object({
+  t: z.literal('feedback'),
+  /** 客户端生成的 id（幂等键：同 id 重复提交只留一条）。 */
+  id: nonEmpty,
+  text: feedbackText,
+  contact: feedbackContact.optional(),
+})
+
+/** 小程序 → 中继：拉取"我的反馈"（含已回复的那些）。 */
+export const feedbackPollFrame = z.object({ t: z.literal('feedback-poll') })
+
+/** 中继 → 小程序：这个客户端自己的反馈列表（**只给它自己的**）。 */
+export const feedbackListFrame = z.object({
+  t: z.literal('feedback-list'),
+  items: z.array(feedbackItem).max(200),
+})
+
 /** 端点可能发给中继的一切。 */
 export const endpointFrame = z.discriminatedUnion('t', [
   helloFrame,
@@ -319,6 +406,9 @@ export const endpointFrame = z.discriminatedUnion('t', [
   sessionLeaveFrame,
   summaryFrame,
   pingFrame,
+  // 反馈面（2026-10-26）：明文，能力位 `feedback.v1`。
+  feedbackFrame,
+  feedbackPollFrame,
 ])
 export type EndpointFrame = z.infer<typeof endpointFrame>
 
@@ -463,6 +553,17 @@ export const errorCodes = [
   /** D4：发送方不是该会话成员。 */
   'not_member',
   /**
+   * **尚未配对**（2026-10-26，反馈面）。
+   *
+   * 反馈通道只对**配对成功**的用户开放（产品裁决）：中继以"这个 clientId 是否是
+   * 某条活跃会话的成员"为凭据 —— 那需要真走过一次扫码 + SAS 确认，不是自报能伪造的。
+   *
+   * 它必须区别于 `unknown_session`（那个码让客户端**清配对并要求重扫**）：
+   * 这里配对关系是好的，只是这一条业务动作没资格做 ⇒ 客户端只提示"先配对再反馈"，
+   * **绝不能**顺手把配对清了（那会造成"想提意见反而配不上了"）。
+   */
+  'not_paired',
+  /**
    * 会话还在，但主机此刻不在（宽限期内）。**必须区别于 `unknown_session`**：
    * 客户端见到 `unknown_session` 会丢掉配对并要求重新扫码，而这里只是"这条指令没人接"，
    * 用户重试即可，配对关系不该因此作废（D3/D6）。
@@ -548,6 +649,8 @@ export const relayFrame = z.discriminatedUnion('t', [
   encFrame,
   encBatchFrame,
   resumeGapFrame,
+  // 反馈面（2026-10-26）。
+  feedbackListFrame,
 ])
 export type RelayFrame = z.infer<typeof relayFrame>
 

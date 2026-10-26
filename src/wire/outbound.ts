@@ -20,6 +20,7 @@ import {
   PROTOCOL_VERSION,
   type EndpointFrame,
   type ErrorCode,
+  type FeedbackItem,
   type RelayFrame,
   type StatusDigest,
 } from './frames.js'
@@ -202,6 +203,17 @@ export function pong(ts?: number): RelayOutbound {
  * 与 `makeError` 的 `retryAfterMs` 同一条纪律：造出一张对侧会静默丢掉的帧
  * 比抛错难查得多（小程序对认不出的帧名走 default 静默忽略）。
  */
+/**
+ * 中继 → 小程序：这个客户端自己的反馈列表。
+ *
+ * **只给它自己的**（中继按 clientId 过滤，见 relay/src/feedback.ts）——
+ * 反馈是明文，所以"谁能看到谁的反馈"必须在中继这一侧就定死，
+ * 不能靠客户端自觉只渲染自己的那份。
+ */
+export function feedbackList(items: readonly FeedbackItem[]): RelayOutbound {
+  return { t: 'feedback-list', items: [...items] }
+}
+
 export function resumeGap(sessionId: string, reason: 'overflow' | 'reset'): RelayOutbound {
   if (reason !== 'overflow' && reason !== 'reset') {
     throw new Error(`resume-gap 的 reason 只能是 overflow|reset，收到 ${JSON.stringify(reason)}`)
@@ -409,6 +421,27 @@ export function summary(sessionId: string, digest: StatusDigest): EndpointFrame 
  * 而它对配对没有那么多条通道的要求。构造器在这里先挡一道，
  * 免得造出一条**自己收不了**的帧。
  */
+/**
+ * 小程序 → 中继：提交一条反馈（**明文**）。
+ *
+ * `id` 由客户端生成，是**幂等键**：同一条反馈重发（同 id）只留一条 ——
+ * 小程序在网络抖动时会重发，而"用户看到提交失败又按一次"会生成两个 id
+ * （那是两条反馈，用户确实按了两次，不该被合并）。
+ */
+export function feedbackSubmit(id: string, text: string, contact?: string): EndpointFrame {
+  return {
+    t: 'feedback',
+    id,
+    text,
+    ...(contact ? { contact } : {}),
+  }
+}
+
+/** 小程序 → 中继：拉取"我的反馈"（含已回复的）。 */
+export function feedbackPoll(): EndpointFrame {
+  return { t: 'feedback-poll' }
+}
+
 export function resync(sessionIds: readonly string[]): EndpointFrame {
   if (sessionIds.length > 2000) {
     throw new Error(`resync 最多带 2000 个会话，收到 ${sessionIds.length}`)

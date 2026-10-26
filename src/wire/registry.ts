@@ -48,6 +48,9 @@ const ENDPOINT_FRAME_NAMES = [
   // M2（2026-10-23）：状态摘要 —— 零知识边界上的明文业务面，中继据此存"最后已知"。
   'summary',
   'ping',
+  // 反馈面（2026-10-26）：明文，能力位 `feedback.v1`。
+  'feedback',
+  'feedback-poll',
 ] as const
 type _EndpointNamesMatchUnion = _Assert<
   Exclude<EndpointFrame['t'], (typeof ENDPOINT_FRAME_NAMES)[number]> extends never
@@ -80,6 +83,8 @@ const RELAY_FRAME_NAMES = [
   'enc-batch',
   // P1-3（2026-10-22）：`hello.resume` 补不出来时的回执（环滚过/序号重置）。
   'resume-gap',
+  // 反馈面（2026-10-26）。
+  'feedback-list',
 ] as const
 type _RelayNamesMatchUnion = _Assert<
   Exclude<RelayFrame['t'], (typeof RELAY_FRAME_NAMES)[number]> extends never
@@ -125,8 +130,11 @@ export function isKnownFrameType(name: unknown): name is EndpointFrame['t'] | Re
  * 方向是中继 → 端点：端点看见声明才启用新行为（"按声明开"）。清单与
  * 实现同进退 —— 中继实现了什么才声明什么，缺声明时端点一律按"老中继"处理。
  *   · `digest.v1` —— 状态摘要面（M2：主机发 `summary`、手机读 hello-ok.summary）。
+ *   · `feedback.v1` —— 反馈面（2026-10-26）：小程序可提交/拉取反馈。
+ *     **声明它 = 中继已经实现了那三帧**（否则小程序会对着没实现的端点发帧）。
+ *     未声明的老中继 ⇒ 小程序**不开**反馈入口（按声明开，不靠版本号猜）。
  */
-export const RELAY_CAPABILITIES = ['digest.v1'] as const
+export const RELAY_CAPABILITIES = ['digest.v1', 'feedback.v1'] as const
 
 // ── 载荷名 ────────────────────────────────────────────────────────────
 

@@ -39,9 +39,10 @@ test('relay 表与 relayFrame 判别联合逐项相等：enc / enc-batch 两个�
   // 这条曾经真的漏过：relay → endpoint 的 union 里含 enc / enc-batch（中继转发密文），
   // 而人抄的那张表只有 8 个控制帧名。合起来 10 个，少一个都是静默的。
   assert.deepEqual([...RELAY_FRAME_TYPES].sort(), unionNames(relayFrame).sort())
+  // 14 = 原 13 + feedback-list（反馈面回包，2026-10-26）
   // 13 = 原 10 + pair-request（中继带给主机）+ pair-grant（中继转给手机）
   //      + resume-gap（P1-3 补帧回执，2026-10-22）
-  assert.equal(RELAY_FRAME_TYPES.length, 13)
+  assert.equal(RELAY_FRAME_TYPES.length, 14)
 })
 
 test('两个方向的两张表没有互相矛盾的名字（同一 t 在两边含义必须一致）', () => {
@@ -63,11 +64,11 @@ test('载荷表与两个判别联合逐项相等；FRAME_TYPES 是两张表的�
     [],
   )
   // FRAME_TYPES 是并集而不是相加：enc / enc-batch / pair-grant 两边都有。
-  // 计数翻转（19 → 20，B 口径）：M2 新增端点帧 `summary`（状态摘要，REVIEW §5.1，
-  // 2026-10-23 用户裁决的模型项）—— 23 - 3 = 20。计数是**派生事实**，跟帧面走。
+  // 计数翻转（20 → 23，B 口径）：反馈面新增三帧 —— 端点侧 `feedback` / `feedback-poll`
+  // 与中继侧 `feedback-list`（2026-10-26）。计数是**派生事实**，跟帧面走。
   assert.equal(FRAME_TYPES.length, new Set(FRAME_TYPES).size)
   assert.equal(FRAME_TYPES.length, new Set([...ENDPOINT_FRAME_TYPES, ...RELAY_FRAME_TYPES]).size)
-  assert.equal(FRAME_TYPES.length, 20)
+  assert.equal(FRAME_TYPES.length, 23)
 })
 
 test('describeCatalog 打印的是实测值，且与它数的东西一致', () => {

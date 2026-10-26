@@ -66,6 +66,7 @@ const DESCRIPTIONS: Readonly<Record<ErrorCode, string>> = {
   pair_table_full: '待配对表已满',
   unknown_session: '该配对通道不存在或已被回收（客户端据此清配对并要求重扫）',
   not_member: '发送方不是该会话的成员',
+  not_paired: '尚未与任何主机配对（该动作要求先完成配对）',
   host_unavailable: '会话仍在，但主机此刻离线（宽限期内）',
   bad_frame: '帧名字对但形状不合法',
   bad_json: '不是合法的 JSON 对象',

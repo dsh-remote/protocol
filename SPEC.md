@@ -762,23 +762,24 @@ MUST NOT 是"静默丢弃"（§4.3.2）。
 
 ### 12.2 错误码与可重试性
 
-| `code`                      | 含义                    | 可重试 | 端点应当的动作                                        |
-| --------------------------- | ----------------------- | ------ | ----------------------------------------------------- |
-| `bad_role`                  | role 不合法             | ❌     | 断开                                                  |
-| `bad_token`                 | host 凭据错             | ❌     | 断开，提示配置                                        |
-| `need_host` / `need_client` | 对端角色还没上线        | ❌     | 等待被叫                                              |
-| `bad_pair`                  | `pair-begin` 形状非法   | ❌     | 主机侧记日志                                          |
-| `pair_table_full`           | 待配对表满              | ✅     | 稍后重试（带 `retryAfterMs`）                         |
-| `unknown_session`           | 会话不存在              | ❌     | **client 必须清配对并要求重扫**（唯一据此清配对的码） |
-| `not_member`                | 发送方不是该会话成员    | ❌     | 断开                                                  |
-| `host_unavailable`          | 会话在，主机不在        | ✅     | 重试；MUST NOT 清配对                                 |
-| `bad_frame`                 | 形状非法                | ❌     | 修实现                                                |
-| `bad_json`                  | 不是合法 JSON 对象      | ❌     | 修实现                                                |
-| `unknown_frame`             | 帧名不在注册表          | ❌     | 对端版本不对                                          |
-| `rate_limited`              | 限速                    | ✅     | 按 `retryAfterMs` 退避                                |
-| `internal`                  | 中继内部错误            | ✅     | 重试                                                  |
-| `unsupported_protocol`      | **（新）** 版本不可接受 | ❌     | 明确告知用户后停止                                    |
-| `history_window_exceeded`   | `since` 在保留窗口之外  | ❌     | client MUST 改拉历史（§10.7 S4）                      |
+| `code`                      | 含义                         | 可重试 | 端点应当的动作                                        |
+| --------------------------- | ---------------------------- | ------ | ----------------------------------------------------- |
+| `bad_role`                  | role 不合法                  | ❌     | 断开                                                  |
+| `bad_token`                 | host 凭据错                  | ❌     | 断开，提示配置                                        |
+| `need_host` / `need_client` | 对端角色还没上线             | ❌     | 等待被叫                                              |
+| `bad_pair`                  | `pair-begin` 形状非法        | ❌     | 主机侧记日志                                          |
+| `pair_table_full`           | 待配对表满                   | ✅     | 稍后重试（带 `retryAfterMs`）                         |
+| `unknown_session`           | 会话不存在                   | ❌     | **client 必须清配对并要求重扫**（唯一据此清配对的码） |
+| `not_member`                | 发送方不是该会话成员         | ❌     | 断开                                                  |
+| `not_paired`                | 尚未配对（该动作要求先配对） | ❌     | client MUST NOT 清配对（配对是好的，只是没资格做）    |
+| `host_unavailable`          | 会话在，主机不在             | ✅     | 重试；MUST NOT 清配对                                 |
+| `bad_frame`                 | 形状非法                     | ❌     | 修实现                                                |
+| `bad_json`                  | 不是合法 JSON 对象           | ❌     | 修实现                                                |
+| `unknown_frame`             | 帧名不在注册表               | ❌     | 对端版本不对                                          |
+| `rate_limited`              | 限速                         | ✅     | 按 `retryAfterMs` 退避                                |
+| `internal`                  | 中继内部错误                 | ✅     | 重试                                                  |
+| `unsupported_protocol`      | **（新）** 版本不可接受      | ❌     | 明确告知用户后停止                                    |
+| `history_window_exceeded`   | `since` 在保留窗口之外       | ❌     | client MUST 改拉历史（§10.7 S4）                      |
 
 > **`history_window_exceeded` 为什么不可重试**：重发同一条 `since` 仍然落在窗口外。
 > 标成可重试会让端点在一条**永远不会自愈**的请求上耗尽重试额度，而正确动作是
@@ -926,10 +927,24 @@ ev.host_info {
 
 ### 17.1 控制帧名
 
-| 方向             | 名字                                                                                               |
-| ---------------- | -------------------------------------------------------------------------------------------------- |
-| endpoint → relay | `hello` `pair-begin` `pair-begin-client` `resync` `enc` `enc-batch` `session-leave` `ping`         |
-| relay → endpoint | `hello-ok` `pair-ready` `paired` `pair-fail` `peer-joined` `peer-left` `error` `pong` `resume-gap` |
+| 方向             | 名字                                                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| endpoint → relay | `hello` `pair-begin` `pair-begin-client` `pair-grant` `resync` `enc` `enc-batch` `session-leave` `summary` `ping` `feedback` `feedback-poll`   |
+| relay → endpoint | `hello-ok` `pair-ready` `pair-request` `pair-grant` `paired` `pair-fail` `peer-joined` `peer-left` `error` `pong` `resume-gap` `feedback-list` |
+
+### 17.1.1 反馈面（2026-10-26）
+
+反馈是**明文**的，而且是中继唯一读得懂的自由文本。零知识边界在这里**开了一扇有名字的门**：
+
+| 编号 | 义务                                                                                           |
+| ---- | ---------------------------------------------------------------------------------------------- |
+| FB-1 | 中继 MUST 只接受**已配对**客户端的 `feedback`（该 clientId 是某条活跃会话的成员）              |
+| FB-2 | 中继 MUST NOT 把 `feedback` 与会话内容混流（它不走 `enc`，落盘文件与会话表分开）               |
+| FB-3 | `feedback-list` MUST 只含**该 clientId 自己**的条目                                            |
+| FB-4 | 中继 MUST 声明能力位 `feedback.v1`；端点 MUST 按声明开（未声明时不发帧、不显示入口）           |
+| FB-5 | 限频 MUST **出声**（`rate_limited`），MUST NOT 静默丢弃（静默会让用户以为提交成功了）          |
+| FB-6 | 端点 MUST NOT 把 `not_paired` 当成"配对失效"（那是 `unknown_session` 的语义，MUST NOT 清配对） |
+| FB-7 | 承诺的响应时限 MUST 由 `FEEDBACK_SLA_HOURS`（24 小时）一处定义，中继与端点共用同一个数         |
 
 ### 17.2 命令名
 
