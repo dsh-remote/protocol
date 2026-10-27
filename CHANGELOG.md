@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.5.4 —— 订阅消息面：审批/提问挂起时的微信提醒
+
+新增两个**明文控制帧**（都不携带载荷内容）与一个**动态能力位**。
+
+| 帧                | 方向           | 形状                                                                              |
+| ----------------- | -------------- | --------------------------------------------------------------------------------- |
+| `notify-register` | client → relay | `{code, subscribed?}`（`code` 是 `wx.login` 的一次性 code）                       |
+| `notify-approval` | host → relay   | `{conversationId, items[]}`（1–10 条，每条只有 requestId/sessionId/kind/askedAt） |
+
+- `hello-ok.notify` = `{templateId}`：**只有中继真的启用了 notifier 才带**。
+- 能力位 `notify.v1`：**动态**（不在 `RELAY_CAPABILITIES` 里）——
+  通知面要 appid+secret+模板 三样都配齐才启用，声明了却发不出去比不声明更坏。
+- `FEEDBACK_SLA_HOURS` 之外新增 `NOTIFY_DELAY_MS`（宿主侧，60 秒）。
+
+判据：`tests/wire/notify.test.ts`（6 条）。帧名计数 20 → 22。
+
+## 0.5.3 —— 回滚反馈面：改用微信小程序客服
+
+反馈不再经过中继，也不再自定义协议。小程序的「意见反馈」入口保留原 FAB，
+但点击直接走微信原生客服（`<button open-type="contact">`）。
+
+删除 0.5.2 引入的整块反馈面：
+
+- 三帧 `feedback` / `feedback-poll` / `feedback-list`；
+- `FeedbackItem`、`FEEDBACK_SLA_HOURS` / `FEEDBACK_TEXT_MAX` / `FEEDBACK_CONTACT_MAX`；
+- 能力位 `feedback.v1`（`RELAY_CAPABILITIES` 只剩 `digest.v1`）；
+- 错误码 `not_paired`。
+
+协议帧表回到 20 个（endpoint 10 / relay 13，重叠 3）。老小程序按能力位开入口：
+新中继不声明 `feedback.v1`，0.5.5 及更早的客户端不会显示反馈入口、也不会发三帧。
+
 ## 0.5.2 —— 反馈面（`feedback` / `feedback-poll` / `feedback-list` + `feedback.v1`）
 
 ### 为什么有一块明文

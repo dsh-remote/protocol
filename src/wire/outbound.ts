@@ -20,7 +20,8 @@ import {
   PROTOCOL_VERSION,
   type EndpointFrame,
   type ErrorCode,
-  type FeedbackItem,
+  type NotifyConfig,
+  type NotifyItem,
   type RelayFrame,
   type StatusDigest,
 } from './frames.js'
@@ -67,6 +68,11 @@ export interface RelayOutbound {
 export interface HelloOkExtras {
   capabilities?: readonly string[]
   summary?: StatusDigest
+  /**
+   * 通知面配置（2026-10-27）。**只有中继真的启用了 notifier 才带**。
+   * 端点看见它才显示开关（老中继没这个字段 ⇒ 开关不出现）。
+   */
+  notify?: NotifyConfig
 }
 
 export function helloOkForClient(clientId: string, protocol?: number, extras: HelloOkExtras = {}): RelayOutbound {
@@ -79,6 +85,7 @@ export function helloOkForClient(clientId: string, protocol?: number, extras: He
     ...(protocol === undefined ? { protocol: PROTOCOL_VERSION } : { protocol }),
     capabilities: [...(extras.capabilities ?? RELAY_CAPABILITIES)],
     ...(extras.summary === undefined ? {} : { summary: extras.summary }),
+    ...(extras.notify === undefined ? {} : { notify: extras.notify }),
   }
 }
 
@@ -91,6 +98,7 @@ export function helloOkForHost(hostId: string, protocol?: number, extras: HelloO
     ...(protocol === undefined ? { protocol: PROTOCOL_VERSION } : { protocol }),
     capabilities: [...(extras.capabilities ?? RELAY_CAPABILITIES)],
     ...(extras.summary === undefined ? {} : { summary: extras.summary }),
+    ...(extras.notify === undefined ? {} : { notify: extras.notify }),
   }
 }
 
@@ -203,17 +211,6 @@ export function pong(ts?: number): RelayOutbound {
  * 与 `makeError` 的 `retryAfterMs` 同一条纪律：造出一张对侧会静默丢掉的帧
  * 比抛错难查得多（小程序对认不出的帧名走 default 静默忽略）。
  */
-/**
- * 中继 → 小程序：这个客户端自己的反馈列表。
- *
- * **只给它自己的**（中继按 clientId 过滤，见 relay/src/feedback.ts）——
- * 反馈是明文，所以"谁能看到谁的反馈"必须在中继这一侧就定死，
- * 不能靠客户端自觉只渲染自己的那份。
- */
-export function feedbackList(items: readonly FeedbackItem[]): RelayOutbound {
-  return { t: 'feedback-list', items: [...items] }
-}
-
 export function resumeGap(sessionId: string, reason: 'overflow' | 'reset'): RelayOutbound {
   if (reason !== 'overflow' && reason !== 'reset') {
     throw new Error(`resume-gap 的 reason 只能是 overflow|reset，收到 ${JSON.stringify(reason)}`)
@@ -422,24 +419,31 @@ export function summary(sessionId: string, digest: StatusDigest): EndpointFrame 
  * 免得造出一条**自己收不了**的帧。
  */
 /**
- * 小程序 → 中继：提交一条反馈（**明文**）。
+ * 小程序 → 中继：登记订阅。
  *
- * `id` 由客户端生成，是**幂等键**：同一条反馈重发（同 id）只留一条 ——
- * 小程序在网络抖动时会重发，而"用户看到提交失败又按一次"会生成两个 id
- * （那是两条反馈，用户确实按了两次，不该被合并）。
+ * `subscribed: true` = 刚接受了一次订阅 ⇒ 额度 +1。
+ * ⚠️ `code` 是**一次性 code**（`wx.login` 给的），中继拿它换 openid 之后就作废。
  */
-export function feedbackSubmit(id: string, text: string, contact?: string): EndpointFrame {
+export function notifyRegister(code: string, subscribed?: boolean): EndpointFrame {
   return {
-    t: 'feedback',
-    id,
-    text,
-    ...(contact ? { contact } : {}),
+    t: 'notify-register',
+    code,
+    ...(subscribed === undefined ? {} : { subscribed }),
   }
 }
 
-/** 小程序 → 中继：拉取"我的反馈"（含已回复的）。 */
-export function feedbackPoll(): EndpointFrame {
-  return { t: 'feedback-poll' }
+/**
+ * 主机 → 中继：这个会话里有待办，请按需发通知。
+ *
+ * `items` 是**同一会话里所有未通知的 pending**（审批 + 提问打包成一条）——
+ * 一张卡一条通知会把用户的通知栏刷爆。
+ */
+export function notifyApproval(conversationId: string, items: readonly NotifyItem[]): EndpointFrame {
+  return {
+    t: 'notify-approval',
+    conversationId,
+    items: items.map((item) => ({ ...item })),
+  }
 }
 
 export function resync(sessionIds: readonly string[]): EndpointFrame {
